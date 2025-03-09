@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools" <!-- 新增工具命名空间 -->
 
     <!-- 语音设置 Category 必须严格闭合 -->
     <PreferenceCategory
@@ -29,7 +30,9 @@
             android:min="5"
             android:max="20"
             app:showSeekBarValue="true"
-        />
+            app:summary="当前速度：%s倍"
+            app:seekBarIncrement="1"
+            tools:summary="当前速度：1.2倍" />
 
     </PreferenceCategory> <!-- 闭合语音设置 Category -->
 

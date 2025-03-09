@@ -8,12 +8,20 @@ import org.tensorflow.lite.support.image.ops.Rot90Op
 import org.tensorflow.lite.task.core.BaseOptions
 import org.tensorflow.lite.task.vision.detector.Detection
 import org.tensorflow.lite.task.vision.detector.ObjectDetector
+import java.io.FileInputStream
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import java.nio.channels.FileChannel
 
-class ObjectDetectorHelper(context: Context) {
+class ObjectDetectorHelper(
+    private val context: Context,
+    private val listener: DetectionListener? = null
+) {
+    companion object {
+        @Volatile var confidenceThreshold: Float = 0.4f
+        private const val MODEL_FILE = "efficientdet_lite0.tflite"
+    }
+
     private var objectDetector: ObjectDetector? = null
-    private val assetManager = context.assets
 
     init {
         initializeDetector()
@@ -21,42 +29,66 @@ class ObjectDetectorHelper(context: Context) {
 
     private fun initializeDetector() {
         try {
-            val modelFile = "efficientdet_lite0.tflite"
-            val inputStream = assetManager.open(modelFile)
-            val modelBuffer = inputStream.readBytes()
-            val byteBuffer = ByteBuffer.allocateDirect(modelBuffer.size).apply {
-                order(ByteOrder.nativeOrder())
-                put(modelBuffer)
-                rewind()
-            }
-            inputStream.close()
-
-            val baseOptions = BaseOptions.builder()
-                .setNumThreads(4)
-                .build()
-
-            val options = ObjectDetector.ObjectDetectorOptions.builder()
-                .setBaseOptions(baseOptions)
-                .setMaxResults(5)
-                .setScoreThreshold(0.5f)
-                .build()
+            val byteBuffer = loadModelFile()
+            val options = buildDetectorOptions()
 
             objectDetector = ObjectDetector.createFromBufferAndOptions(byteBuffer, options)
+            listener?.onInitialized()
         } catch (e: Exception) {
-            Log.e("ObjectDetector", "Initialization failed: ${e.stackTraceToString()}")
+            val errorMsg = "检测器初始化失败: ${e.localizedMessage}"
+            Log.e("ObjectDetector", errorMsg)
+            listener?.onError(errorMsg)
         }
     }
 
-    fun detect(image: TensorImage, rotationDegrees: Int): List<Detection> {
-        val imageProcessor = ImageProcessor.Builder()
-            .add(Rot90Op(-rotationDegrees / 90))
+    private fun loadModelFile(): ByteBuffer {
+        val fileDescriptor = context.assets.openFd(MODEL_FILE)
+        return FileInputStream(fileDescriptor.fileDescriptor).use { inputStream ->
+            inputStream.channel.run {
+                map(
+                    FileChannel.MapMode.READ_ONLY,
+                    fileDescriptor.startOffset,
+                    fileDescriptor.declaredLength
+                ).apply {
+                    fileDescriptor.close()
+                }
+            }
+        }
+    }
+
+    private fun buildDetectorOptions(): ObjectDetector.ObjectDetectorOptions {
+        val baseOptions = BaseOptions.builder()
+            .setNumThreads(Runtime.getRuntime().availableProcessors().coerceAtLeast(1))
             .build()
 
-        val processedImage = imageProcessor.process(image)
-        return objectDetector?.detect(processedImage) ?: emptyList()
+        return ObjectDetector.ObjectDetectorOptions.builder()
+            .setBaseOptions(baseOptions)
+            .setMaxResults(5)
+            .setScoreThreshold(confidenceThreshold)
+            .build()
+    }
+
+    fun detect(image: TensorImage, rotationDegrees: Int): List<Detection> {
+        return try {
+            val validRotation = (rotationDegrees / 90).coerceIn(0..3)
+            val imageProcessor = ImageProcessor.Builder()
+                .add(Rot90Op(-validRotation))
+                .build()
+
+            objectDetector?.detect(imageProcessor.process(image)) ?: emptyList()
+        } catch (e: Exception) {
+            Log.e("Detection", "检测失败: ${e.stackTraceToString()}")
+            emptyList()
+        }
     }
 
     fun close() {
         objectDetector?.close()
+        objectDetector = null
+    }
+
+    interface DetectionListener {
+        fun onError(error: String)
+        fun onInitialized()
     }
 }
