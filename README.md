@@ -1,5 +1,5 @@
 # Guide - Intelligent Navigation Assistant
-
+ 
 
 An AI-powered assistive application leveraging computer vision to provide real-time obstacle detection and multimodal feedback for visually impaired users and those needing enhanced environmental awareness.
 
