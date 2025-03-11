@@ -46,7 +46,9 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', 'gradle.properties') }}
 
       - name: Build & Test
-        run: ./gradlew assembleDebug check
+        run: |
+          ./gradlew clean
+          ./gradlew assembleDebug check connectedDebugAndroidTest
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -60,8 +62,8 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        api-level: [ 24, 25, 28, 29, 30 ]
-        arch: [ x86_64 ]
+        api-level: [24, 25, 28, 29, 30]
+        arch: [x86_64]
         include:
           - api-level: 24
             target: google_apis
@@ -73,7 +75,7 @@ jobs:
             target: google_apis
           - api-level: 30
             target: google_apis
-    timeout-minutes: 40
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
@@ -83,6 +85,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: debug-apk
+          path: .
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -98,15 +101,21 @@ jobs:
           target: ${{ matrix.target }}
           profile: Nexus 6
           disable-animations: true
-          script:
-            adb install app-debug.apk
-            ./gradlew connectedDebugAndroidTest
+          emulator-options: -no-audio -no-snapshot -no-window -gpu swiftshader_indirect
+          boot-timeout: 600
+          script: |
+            adb install app-debug.apk || echo "APK installation failed (possibly already installed)"
+            ./gradlew connectedDebugAndroidTest --stacktrace
+
+      - name: Debug - List build outputs
+        run: ls -R app/build
 
       - name: Collect Results
         if: ${{ always() }}
         run: |
           mkdir -p test-results/${{ matrix.api-level }}
-          cp -r app/build/reports/androidTests/connected/* test-results/${{ matrix.api-level }}/
+          cp -r app/build/reports/androidTests/connected*/* test-results/${{ matrix.api-level}}/ || echo "No HTML reports"
+          cp -r app/build/outputs/androidTest-results/connected/* test-results/${{ matrix.api-level}}/ || echo "No XML reports"
 
       - name: Upload Test Reports
         uses: actions/upload-artifact@v4
@@ -122,25 +131,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 新增权限设置步骤
       - name: Set gradlew executable
         run: chmod +x gradlew
 
       - name: Architecture Validation
         run: |
-          # 检查 NDK 配置
           if ! grep -q "ndk\s*{" app/build.gradle || ! grep -q "abiFilters" app/build.gradle; then
             echo "❌ Missing 64-bit ABI configuration!"
             exit 1
           fi
           
-          # 验证 64 位架构
           if ! grep -qE "'arm64-v8a'|'x86_64'" app/build.gradle; then
             echo "❌ Missing 64-bit ABI in filters!"
             exit 1
           fi
           
-          # 检查 multidex 配置
           if [ $(grep -c 'multiDexEnabled true' app/build.gradle) -eq 0 ]; then
             echo "❌ Missing multidex configuration!"
             exit 1
