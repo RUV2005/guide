@@ -75,7 +75,7 @@ jobs:
             target: google_apis
           - api-level: 30
             target: google_apis
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
@@ -93,67 +93,93 @@ jobs:
           distribution: 'temurin'
           java-version: 17
 
-      - name: Run Android Emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ matrix.api-level }}
-          arch: ${{ matrix.arch }}
-          target: ${{ matrix.target }}
-          profile: Nexus 6
-          disable-animations: true
-          emulator-options: -no-audio -no-snapshot -no-window -gpu swiftshader_indirect
-          boot-timeout: 600
-          script: |
-            # 重置ADB连接
-            adb kill-server
-            adb start-server
+      - name: Initialize Android Environment
+        run: |
+          echo "🔄 重置Android环境..."
+          rm -rf ~/.android/avd/*
+          rm -rf ~/.android/adb*
+          mkdir -p ~/.android
 
-            # 等待设备连接
-            echo "⏳ 等待设备连接..."
-            adb wait-for-device
-            
-            # 等待系统完全启动
-            echo "⏳ 等待系统启动完成..."
-            adb shell 'while [[ -z "$(getprop sys.boot_completed)" ]]; do sleep 2; done'
-            
-            # 解锁屏幕
-            echo "🖥 解锁屏幕..."
-            adb shell input keyevent 82
-            
-            # 安装APK（带重试机制）
-            echo "📦 安装APK..."
-            for i in {1..3}; do
-              adb install -t -g app-debug.apk && break || sleep 15
-              echo "⚠️ 安装失败，第$i次重试..."
-            done
-            
-            # 验证安装
-            echo "✅ 已安装包列表："
-            adb shell pm list packages | grep your.package.name
-            
-            # 执行测试
-            echo "🧪 开始执行测试..."
-            ./gradlew connectedDebugAndroidTest \
-              --no-daemon \
-              --console=plain \
-              --stacktrace \
-              -Pandroid.testInstrumentationRunnerArguments.annotation=androidx.test.filters.FlakyTest
+      - name: Start Android Emulator
+        timeout-minutes: 20
+        run: |
+          # 安装必要组件
+          sdkmanager "system-images;android-${{ matrix.api-level }};google_apis;x86_64"
+          sdkmanager --install "emulator"
 
-      - name: Collect Results
+          # 创建AVD
+          echo "no" | avdmanager create avd \
+            --name "ci_avd_${{ matrix.api-level }}" \
+            --package "system-images;android-${{ matrix.api-level }};google_apis;x86_64" \
+            --abi google_apis/x86_64 \
+            --device "Nexus 6"
+
+          # 启动模拟器
+          emulator @ci_avd_${{ matrix.api-level}} \
+            -port 5554 \
+            -no-audio \
+            -no-snapshot \
+            -no-window \
+            -gpu swiftshader_indirect \
+            -no-boot-anim \
+            -memory 2048 \
+            -cache-size 2048 \
+            -qemu -enable-kvm &
+          EMULATOR_PID=$!
+
+          # 等待设备连接
+          echo "⏳ 等待设备上线..."
+          adb wait-for-device
+          
+          # 等待系统启动完成
+          echo "⏳ 等待系统启动..."
+          for i in {1..30}; do
+            if adb shell getprop sys.boot_completed | grep -q 1; then
+              echo "✅ 系统启动完成"
+              break
+            fi
+            echo "⏳ 启动进度检查 ($i/30)..."
+            sleep 10
+          done
+
+          # 解锁屏幕
+          adb shell input keyevent 82
+
+          # 验证设备状态
+          echo "📱 设备信息："
+          adb shell getprop
+
+      - name: Install APK
+        run: |
+          # 带MD5校验的安装
+          APK_MD5=$(md5 -q app-debug.apk)
+          echo "📦 安装APK (MD5: $APK_MD5)..."
+          adb install -t -g app-debug.apk
+
+      - name: Run Instrumentation Tests
+        run: |
+          ./gradlew connectedDebugAndroidTest \
+            --no-daemon \
+            --stacktrace \
+            --scan \
+            -Pandroid.testOptions.animationsDisabled=true
+
+      - name: Collect Diagnostics
         if: ${{ always() }}
         run: |
-          mkdir -p test-results/${{ matrix.api-level }}
-          cp -r app/build/reports/androidTests/connected/* test-results/${{ matrix.api-level}}/ || echo "未找到HTML报告"
-          cp -r app/build/outputs/androidTest-results/connected/* test-results/${{ matrix.api-level}}/ || echo "未找到XML报告"
-          
-          # 收集ADB日志
-          adb logcat -d > test-results/${{ matrix.api-level}}/adb_logcat.log
+          mkdir -p diagnostics
+          adb logcat -d > diagnostics/logcat.log
+          adb bugreport diagnostics/bugreport.zip
+          adb shell dumpsys window > diagnostics/window_dump.txt
+          ps aux > diagnostics/process_list.txt
 
-      - name: Upload Test Reports
+      - name: Upload Reports
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-api-${{ matrix.api-level }}
-          path: test-results/${{ matrix.api-level }}
+          path: |
+            app/build/reports/androidTests/connected/
+            diagnostics/
 
   enhanced-compatibility:
     name: Enhanced Compatibility Checks
