@@ -1,110 +1,116 @@
-name: Android CI (minSdk24)
 
-on:
-  push:
-    branches: [ "main", "dev" ]
-  pull_request:
-    branches: [ "main" ]
 
-env:
-  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
-  FIREBASE_PROJECT: "your-project-id"
 
-jobs:
-  build:
-    name: Build & Test
-    runs-on: macos-latest
-    timeout-minutes: 30
+  以下是修复后的完整工作流文件，主要修正了 Firebase Test 步骤的 YAML 缩进问题：
+    
+    ```yaml
+  name: Android CI (minSdk24)
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  on:
+    push:
+      branches: [ "main", "dev" ]
+    pull_request:
+      branches: [ "main" ]
 
-      - name: Set gradlew executable
-        run: chmod +x gradlew
+  env:
+    GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+    FIREBASE_PROJECT: "your-project-id"
 
-      - name: Verify minSdkVersion
-        run: |
-          MIN_SDK=$(grep 'minSdkVersion' app/build.gradle | awk '{print $2}')
-          if [ $MIN_SDK -lt 24 ]; then
-            echo "Error: minSdkVersion must be >= 24"
-            exit 1
-          fi
+  jobs:
+    build:
+      name: Build & Test
+      runs-on: macos-latest
+      timeout-minutes: 30
 
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: 17
+      steps:
+        - name: Checkout code
+          uses: actions/checkout@v4
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', 'gradle.properties') }}
+        - name: Set gradlew executable
+          run: chmod +x gradlew
 
-      - name: Build & Test
-        run: ./gradlew assembleDebug check
+        - name: Verify minSdkVersion
+          run: |
+            MIN_SDK=$(grep 'minSdkVersion' app/build.gradle | awk '{print $2}')
+            if [ $MIN_SDK -lt 24 ]; then
+              echo "Error: minSdkVersion must be >= 24"
+              exit 1
+            fi
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+        - name: Setup JDK 17
+          uses: actions/setup-java@v4
+          with:
+            distribution: 'temurin'
+            java-version: 17
 
-  compatibility-test:
-    name: Device Matrix Test (API24+)
-    needs: build
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        device:
-          - model: "Nexus5X"
-            version: 24
-            locale: "en_US"
-          - model: "Nexus6P"
-            version: 24
-            locale: "en_GB"
-          - model: "Pixel"
-            version: 25
-          - model: "Pixel2"
-            version: 27
-          - model: "Pixel3"
-            version: 28
-          - model: "Pixel4"
-            version: 29
-          - model: "Pixel5"
-            version: 30
-          - model: "GalaxyS20"
-            version: 30
-          - model: "Xperia10II"
-            version: 29
-    steps:
-      - name: Download APK
-        uses: actions/download-artifact@v4
-        with:
-          name: debug-apk
+        - name: Cache Gradle
+          uses: actions/cache@v4
+          with:
+            path: |
+              ~/.gradle/caches
+              ~/.gradle/wrapper
+            key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', 'gradle.properties') }}
 
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v1.1.1
+        - name: Build & Test
+          run: ./gradlew assembleDebug check
 
-      - name: Run Firebase Test
-        uses: FirebaseExtended/action-test-android@v0
-        with:
-          serviceAccountKey: ${{ secrets.FIREBASE_SA_KEY }}
-          appApk: app-debug.apk
-          testApk: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+        - name: Upload APK
+          uses: actions/upload-artifact@v4
+          with:
+            name: debug-apk
+            path: app/build/outputs/apk/debug/app-debug.apk
+
+    compatibility-test:
+      name: Device Matrix Test (API24+)
+      needs: build
+      runs-on: ubuntu-latest
+      strategy:
+        matrix:
           device:
-            model: ${{ matrix.device.model }}
-            version: ${{ matrix.device.version }}
-            locale: ${{ matrix.device.locale | default('en_US') }}
-            orientation: portrait
-          results-dir: test-results/${{ matrix.device.model }}
+            - model: "Nexus5X"
+              version: 24
+              locale: "en_US"
+            - model: "Nexus6P"
+              version: 24
+              locale: "en_GB"
+            - model: "Pixel"
+              version: 25
+            - model: "Pixel2"
+              version: 27
+            - model: "Pixel3"
+              version: 28
+            - model: "Pixel4"
+              version: 29
+            - model: "Pixel5"
+              version: 30
+            - model: "GalaxyS20"
+              version: 30
+            - model: "Xperia10II"
+              version: 29
+      steps:
+        - name: Download APK
+          uses: actions/download-artifact@v4
+          with:
+            name: debug-apk
 
-      - name: Upload Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.device.model }}
-          path: test-results/${{ matrix.device.model }}
+        - name: Setup gcloud
+          uses: google-github-actions/setup-gcloud@v1.1.1
+
+        - name: Run Firebase Test
+          uses: FirebaseExtended/action-test-android@v0
+          with:
+            serviceAccountKey: ${{ secrets.FIREBASE_SA_KEY }}
+            appApk: app-debug.apk
+            testApk: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            device:
+              model: ${{ matrix.device.model }}
+              version: ${{ matrix.device.version }}
+              locale: ${{ matrix.device.locale | default('en_US') }}
+              orientation: portrait
+            results-dir: test-results/${{ matrix.device.model }}
+
+        - name: Upload Results
+          uses: actions/upload-artifact@v4
+          with:
+            name: test-results-${{ matrix.device.model }}
+            path: test-results/${{ matrix.device.model }}
