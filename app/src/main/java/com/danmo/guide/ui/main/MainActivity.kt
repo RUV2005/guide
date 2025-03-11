@@ -10,14 +10,11 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.util.Log
-import android.view.Menu
-import android.view.MenuItem
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageAnalysis
 import androidx.core.content.ContextCompat
-import com.danmo.guide.R
 import com.danmo.guide.databinding.ActivityMainBinding
 import com.danmo.guide.feature.camera.CameraManager
 import com.danmo.guide.feature.camera.ImageProxyUtils
