@@ -61,7 +61,7 @@ jobs:
     strategy:
       matrix:
         api-level: [ 24, 25, 28, 29, 30 ]
-        arch: [ x86_64 ]  # 使用x86架构加速模拟
+        arch: [ x86_64 ]
         include:
           - api-level: 24
             target: google_apis
@@ -99,11 +99,7 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           script:
-            # 安装APK到模拟器
             adb install app-debug.apk
-            # 运行监控脚本检查基础功能
-            ./scripts/basic_checks.sh
-            # 执行UI测试
             ./gradlew connectedDebugAndroidTest
 
       - name: Collect Results
@@ -118,53 +114,34 @@ jobs:
           name: test-reports-api-${{ matrix.api-level }}
           path: test-results/${{ matrix.api-level }}
 
-    enhanced-compatibility:
-      name: Enhanced Compatibility Checks
-      runs-on: ubuntu-latest
-      needs: build
-      steps:
-        - name: Checkout code
-          uses: actions/checkout@v4
+  enhanced-compatibility:
+    name: Enhanced Compatibility Checks
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        - name: Architecture Validation
-          run: |
-            # 检查64位支持
-            if ! grep -q "ndk.abiFilters" app/build.gradle; then
-              echo "❌ Missing 64-bit ABI configuration!"
-              exit 1
-            fi
+      - name: Architecture Validation
+        run: |
+          if ! grep -q "ndk.abiFilters" app/build.gradle; then
+            echo "❌ Missing 64-bit ABI configuration!"
+            exit 1
+          fi
 
-            # 验证multidex配置
-            if [ $(grep -c 'multiDexEnabled true' app/build.gradle) -eq 0 ]; then
-              echo "❌ Missing multidex configuration!"
-              exit 1
-            fi
+          if [ $(grep -c 'multiDexEnabled true' app/build.gradle) -eq 0 ]; then
+            echo "❌ Missing multidex configuration!"
+            exit 1
+          fi
 
-        - name: Run Static Analysis
-          run: |
-            # API兼容性检查
-            ./gradlew checkApiCompatibility -PminSdk=24
+      - name: Run Static Analysis
+        run: |
+          ./gradlew checkApiCompatibility -PminSdk=24
+          ./gradlew errorprone
+          ./gradlew lintDebug --scan
 
-            # 使用errorprone进行代码分析
-            ./gradlew errorprone
-
-            # 增强版Lint检查
-            ./gradlew lintDebug --scan
-
-        - name: Resource Validation
-          run: |
-            # 验证多语言资源
-            ./scripts/validate_locales.sh
-
-            # 检查屏幕适配
-            if [ ! -d "app/src/main/res/layout-sw600dp" ]; then
-              echo "⚠️ Missing tablet layout resources!"
-            fi
-
-        - name: Upload Compatibility Report
-          uses: actions/upload-artifact@v4
-          with:
-            name: compatibility-reports
-            path: |
-              app/build/reports/
-              scripts/output/
+      - name: Upload Compatibility Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-reports
+          path: app/build/reports/
