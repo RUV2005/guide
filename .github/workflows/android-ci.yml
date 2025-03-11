@@ -61,16 +61,11 @@ jobs:
     strategy:
       matrix:
         device: [
-          # API 24 (Android 7.0)
           { model: "Nexus5X", version: 24, locale: "en_US" },
           { model: "Nexus6P", version: 24, locale: "en_GB" },
-
-          # API 25-28 (Android 7.1-9.0)
           { model: "Pixel", version: 25 },
           { model: "Pixel2", version: 27 },
           { model: "Pixel3", version: 28 },
-
-          # Modern devices (API 29+)
           { model: "Pixel4", version: 29 },
           { model: "Pixel5", version: 30 },
           { model: "GalaxyS20", version: 30 },
@@ -114,13 +109,9 @@ jobs:
 
       - name: Run Compatibility Checks
         run: |
-          # 验证旧版系统特性兼容性
           ./gradlew checkApiCompatibility -PminSdk=24
-          
-          # 多语言资源检查
           ./gradlew lintDebug -Dlint.baseline=compat-baseline.xml
           
-          # 64位架构强制检查
           if ! grep -q "ndk.abiFilters" app/build.gradle; then
             echo "Missing 64-bit ABI configuration!"
             exit 1
