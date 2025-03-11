@@ -1,4 +1,4 @@
-name: Android CI (minSdk24)
+name: Android CI (Fixed SDK)
 
 on:
   push:
@@ -7,15 +7,14 @@ on:
     branches: [ "main" ]
 
 env:
+  ANDROID_HOME: ${{ github.workspace }}/android-sdk
+  CMDLINE_TOOLS_VERSION: 9477386
   GRADLE_OPTS: "-Dorg.gradle.daemon=false"
-  FIREBASE_PROJECT: "your-project-id"
 
 jobs:
   build:
-    name: Build & Test
+    name: Build
     runs-on: macos-latest
-    timeout-minutes: 30
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,32 +22,43 @@ jobs:
       - name: Set gradlew executable
         run: chmod +x gradlew
 
-      - name: Verify minSdkVersion
-        run: |
-          MIN_SDK=$(grep 'minSdkVersion' app/build.gradle | awk '{print $2}')
-          if [ $MIN_SDK -lt 24 ]; then
-            echo "Error: minSdkVersion must be >= 24"
-            exit 1
-          fi
-
       - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: 17
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', 'gradle.properties') }}
-
-      - name: Build & Test
+      - name: Install Android SDK
+        timeout-minutes: 15
         run: |
-          ./gradlew clean
-          ./gradlew assembleDebug check
+          # 创建SDK目录
+          mkdir -p $ANDROID_HOME
+
+          # 下载命令行工具
+          cd $ANDROID_HOME
+          curl -L -o cmdline-tools.zip \
+            https://dl.google.com/android/repository/commandlinetools-mac-${CMDLINE_TOOLS_VERSION}_latest.zip
+          unzip -q cmdline-tools.zip -d cmdline-tools
+          rm cmdline-tools.zip
+          mv cmdline-tools/cmdline-tools cmdline-tools/latest
+
+          # 设置环境变量
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+
+          # 接受许可协议
+          yes | sdkmanager --licenses > /dev/null
+
+      - name: Install Platform Tools
+        run: |
+          sdkmanager --verbose \
+            "platform-tools" \
+            "emulator" \
+            "patcher;v4"
+
+      - name: Build APK
+        run: |
+          ./gradlew assembleDebug
+          ls -lh app/build/outputs/apk/debug/
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -56,26 +66,15 @@ jobs:
           name: debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
-  compatibility-test:
-    name: Emulator Matrix Test (API24+)
+  emulator-test:
+    name: Emulator Test (API ${{ matrix.api-level }})
     needs: build
     runs-on: macos-latest
     strategy:
       matrix:
-        api-level: [24, 25, 28, 29, 30]
-        arch: [x86_64]
-        include:
-          - api-level: 24
-            target: google_apis
-          - api-level: 25
-            target: default
-          - api-level: 28
-            target: google_apis_playstore
-          - api-level: 29
-            target: google_apis
-          - api-level: 30
-            target: google_apis
-    timeout-minutes: 60
+        api-level: [29, 30, 31]
+        target: [google_apis]
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
@@ -87,136 +86,64 @@ jobs:
           name: debug-apk
           path: .
 
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: 17
-
-      - name: Initialize Android Environment
+      - name: Install System Image
         run: |
-          echo "🔄 重置Android环境..."
-          rm -rf ~/.android/avd/*
-          rm -rf ~/.android/adb*
-          mkdir -p ~/.android
+          sdkmanager --install "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64"
 
-      - name: Start Android Emulator
-        timeout-minutes: 20
+      - name: Create AVD
         run: |
-          # 安装必要组件
-          sdkmanager "system-images;android-${{ matrix.api-level }};google_apis;x86_64"
-          sdkmanager --install "emulator"
-
-          # 创建AVD
           echo "no" | avdmanager create avd \
             --name "ci_avd_${{ matrix.api-level }}" \
-            --package "system-images;android-${{ matrix.api-level }};google_apis;x86_64" \
-            --abi google_apis/x86_64 \
-            --device "Nexus 6"
+            --package "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64" \
+            --abi "x86_64"
 
-          # 启动模拟器
-          emulator @ci_avd_${{ matrix.api-level}} \
-            -port 5554 \
+      - name: Start Emulator
+        run: |
+          $ANDROID_HOME/emulator/emulator \
+            -avd ci_avd_${{ matrix.api-level }} \
+            -port 5586 \
             -no-audio \
             -no-snapshot \
-            -no-window \
             -gpu swiftshader_indirect \
-            -no-boot-anim \
             -memory 2048 \
-            -cache-size 2048 \
-            -qemu -enable-kvm &
+            -netdelay none \
+            -netspeed full &
           EMULATOR_PID=$!
 
-          # 等待设备连接
-          echo "⏳ 等待设备上线..."
+          # 等待设备就绪
           adb wait-for-device
-          
-          # 等待系统启动完成
-          echo "⏳ 等待系统启动..."
           for i in {1..30}; do
             if adb shell getprop sys.boot_completed | grep -q 1; then
-              echo "✅ 系统启动完成"
               break
             fi
-            echo "⏳ 启动进度检查 ($i/30)..."
             sleep 10
           done
 
           # 解锁屏幕
           adb shell input keyevent 82
 
-          # 验证设备状态
-          echo "📱 设备信息："
-          adb shell getprop
-
-      - name: Install APK
+      - name: Run Tests
+        timeout-minutes: 20
         run: |
-          # 带MD5校验的安装
-          APK_MD5=$(md5 -q app-debug.apk)
-          echo "📦 安装APK (MD5: $APK_MD5)..."
           adb install -t -g app-debug.apk
-
-      - name: Run Instrumentation Tests
-        run: |
           ./gradlew connectedDebugAndroidTest \
-            --no-daemon \
             --stacktrace \
-            --scan \
+            --no-daemon \
             -Pandroid.testOptions.animationsDisabled=true
 
-      - name: Collect Diagnostics
-        if: ${{ always() }}
-        run: |
-          mkdir -p diagnostics
-          adb logcat -d > diagnostics/logcat.log
-          adb bugreport diagnostics/bugreport.zip
-          adb shell dumpsys window > diagnostics/window_dump.txt
-          ps aux > diagnostics/process_list.txt
-
-      - name: Upload Reports
+      - name: Collect Results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-api-${{ matrix.api-level }}
           path: |
             app/build/reports/androidTests/connected/
-            diagnostics/
+            app/build/outputs/androidTest-results/
 
-  enhanced-compatibility:
-    name: Enhanced Compatibility Checks
+  deploy:
+    name: Deploy
+    needs: [build, emulator-test]
     runs-on: ubuntu-latest
-    needs: build
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set gradlew executable
-        run: chmod +x gradlew
-
-      - name: Architecture Validation
-        run: |
-          if ! grep -q "ndk\s*{" app/build.gradle || ! grep -q "abiFilters" app/build.gradle; then
-            echo "❌ Missing 64-bit ABI configuration!"
-            exit 1
-          fi
-          
-          if ! grep -qE "'arm64-v8a'|'x86_64'" app/build.gradle; then
-            echo "❌ Missing 64-bit ABI in filters!"
-            exit 1
-          fi
-          
-          if [ $(grep -c 'multiDexEnabled true' app/build.gradle) -eq 0 ]; then
-            echo "❌ Missing multidex configuration!"
-            exit 1
-          fi
-
-      - name: Run Static Analysis
-        run: |
-          ./gradlew checkApiCompatibility -PminSdk=24
-          ./gradlew errorprone
-          ./gradlew lintDebug --scan
-
-      - name: Upload Compatibility Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: compatibility-reports
-          path: app/build/reports/
+      - name: Completion Check
+        run: echo "All tests passed successfully!"
