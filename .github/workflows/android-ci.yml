@@ -111,9 +111,8 @@ jobs:
         run: |
           ./gradlew checkApiCompatibility -PminSdk=24
           ./gradlew lintDebug -Dlint.baseline=compat-baseline.xml
-          
-          # 修复点：修正if语句的缩进和fi的位置
+
           if ! grep -q "ndk.abiFilters" app/build.gradle; then
             echo "Missing 64-bit ABI configuration!"
             exit 1
-          fi
+          fi  # 修复点：确保fi单独成行且正确闭合
