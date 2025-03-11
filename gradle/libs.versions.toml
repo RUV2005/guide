@@ -12,6 +12,7 @@ composeBom = "2024.04.01"
 appcompat = "1.6.1"
 camera = "1.3.0"  # 替换为实际的 CameraX 版本号
 material = "1.12.0"
+multidex = "2.0.1"
 oboe = "1.7.0"  # 替换为实际的 Oboe 版本号
 media3 = "1.0.0"
 litertSupportApi = "1.1.2"
@@ -30,6 +31,7 @@ preferenceKtx = "1.2.1"
 [libraries]
 androidx-constraintlayout = { module = "androidx.constraintlayout:constraintlayout", version.ref = "constraintlayout" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-multidex = { module = "androidx.multidex:multidex", version.ref = "multidex" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }

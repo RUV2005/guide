@@ -18,6 +18,7 @@ android {
         ndk {
             abiFilters 'armeabi','armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
         }
+        multiDexEnabled true // 启用 multidex
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -119,6 +120,7 @@ dependencies {
     implementation libs.tensorflow.lite.metadata
     implementation libs.firebase.firestore.ktx
     implementation libs.androidx.preference.ktx
+    implementation(libs.androidx.multidex) // 添加 multidex 依赖
     testImplementation libs.junit
     androidTestImplementation libs.androidx.junit
     androidTestImplementation libs.androidx.espresso.core
