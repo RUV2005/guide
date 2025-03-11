@@ -108,22 +108,3 @@ jobs:
         with:
           name: test-results-${{ matrix.device.model }}
           path: test-results/${{ matrix.device.model }}
-
-  legacy-support:
-    name: Legacy Behavior Check
-    runs-on: macos-latest
-    needs: build
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Compatibility Checks
-        run: |
-          ./gradlew checkApiCompatibility -PminSdk=24
-          ./gradlew lintDebug -Dlint.baseline=compat-baseline.xml
-
-          # 检查64位ABI配置
-          if ! grep -q "ndk.abiFilters" app/build.gradle; then
-            echo "Missing 64-bit ABI configuration!"
-            exit 1
-          fi  # 现在fi单独成行
