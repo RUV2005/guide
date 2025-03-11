@@ -124,11 +124,19 @@ jobs:
 
       - name: Architecture Validation
         run: |
-          if ! grep -q "ndk.abiFilters" app/build.gradle; then
+          # 检查 NDK 配置
+          if ! grep -q "ndk\s*{" app/build.gradle || ! grep -q "abiFilters" app/build.gradle; then
             echo "❌ Missing 64-bit ABI configuration!"
             exit 1
           fi
 
+          # 验证 64 位架构
+          if ! grep -qE "'arm64-v8a'|'x86_64'" app/build.gradle; then
+            echo "❌ Missing 64-bit ABI in filters!"
+            exit 1
+          fi
+
+          # 检查 multidex 配置
           if [ $(grep -c 'multiDexEnabled true' app/build.gradle) -eq 0 ]; then
             echo "❌ Missing multidex configuration!"
             exit 1
