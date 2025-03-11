@@ -122,6 +122,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 新增权限设置步骤
+      - name: Set gradlew executable
+        run: chmod +x gradlew
+
       - name: Architecture Validation
         run: |
           # 检查 NDK 配置
@@ -129,13 +133,13 @@ jobs:
             echo "❌ Missing 64-bit ABI configuration!"
             exit 1
           fi
-
+          
           # 验证 64 位架构
           if ! grep -qE "'arm64-v8a'|'x86_64'" app/build.gradle; then
             echo "❌ Missing 64-bit ABI in filters!"
             exit 1
           fi
-
+          
           # 检查 multidex 配置
           if [ $(grep -c 'multiDexEnabled true' app/build.gradle) -eq 0 ]; then
             echo "❌ Missing multidex configuration!"
