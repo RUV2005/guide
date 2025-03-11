@@ -1,63 +1,76 @@
-name: Android CI (Unified SDK Path)
+name: Android CI
 
 on:
   push:
+    branches: [ "main", "dev" ]
+  pull_request:
     branches: [ "main" ]
 
 env:
-  ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
-  CMDLINE_TOOLS_VERSION: 9477386
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
 
 jobs:
   build:
-    name: Build
+    name: Android Build & Test
     runs-on: macos-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Clean Existing Config
+      - name: Set gradlew executable
         run: |
-          rm -f local.properties
-          rm -rf $ANDROID_SDK_ROOT
+          chmod +x gradlew
+          git ls-tree -r HEAD --name-only | xargs -I {} sh -c 'if [ -x "{}" ]; then chmod +x "{}"; fi'
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: 17
-          architecture: x64
 
-      - name: Install Android SDK
-        run: |
-          mkdir -p $ANDROID_SDK_ROOT
-          cd $ANDROID_SDK_ROOT
-          
-          # 下载命令行工具
-          curl -L -o cmdline-tools.zip \
-            "https://dl.google.com/android/repository/commandlinetools-mac-${CMDLINE_TOOLS_VERSION}_latest.zip"
-          unzip -q cmdline-tools.zip -d tmp
-          mkdir -p cmdline-tools/latest
-          mv tmp/cmdline-tools/* cmdline-tools/latest/
-          rm -rf tmp cmdline-tools.zip
-          
-          # 设置统一路径
-          echo "PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH" >> $GITHUB_ENV
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-          
-          # 接受许可
-          yes | sdkmanager --licenses > /dev/null
-          sdkmanager "platform-tools" "emulator"
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', 'gradle.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
-      - name: Build Project
-        run: |
-          ./gradlew clean
-          ./gradlew assembleDebug \
-            -Dorg.gradle.project.android.sdk.dir=$ANDROID_SDK_ROOT \
-            -Dorg.gradle.java.home=$JAVA_HOME
+      - name: Run Android Lint
+        run: ./gradlew lintDebug
+        continue-on-error: true
 
-      - name: Verify SDK Config
-        run: |
-          echo "Local properties:"
-          cat local.properties
-          ./gradlew -q androidSigningReport
+      - name: Upload Lint Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.xml
+
+      - name: Build with Gradle
+        run: ./gradlew assembleDebug check
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: app/build/test-results
+
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v3
+        if: success() || failure()
+        with:
+          report_paths: 'app/build/test-results/**/*.xml'
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Check Dependency Updates
+        run: ./gradlew dependencyUpdates -Drevision=release
