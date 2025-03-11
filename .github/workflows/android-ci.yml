@@ -108,11 +108,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Compatibility Checks
-    run: |
-      ./gradlew checkApiCompatibility -PminSdk=24
-      ./gradlew lintDebug -Dlint.baseline=compat-baseline.xml
-  
-      if ! grep -q "ndk.abiFilters" app/build.gradle; then
-      echo "Missing 64-bit ABI configuration!"
-      exit 1
-      fi
+        run: |
+          ./gradlew checkApiCompatibility -PminSdk=24
+          ./gradlew lintDebug -Dlint.baseline=compat-baseline.xml
+          
+          # 修复点：修正if语句的缩进和fi的位置
+          if ! grep -q "ndk.abiFilters" app/build.gradle; then
+            echo "Missing 64-bit ABI configuration!"
+            exit 1
+          fi
