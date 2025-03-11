@@ -1,9 +1,3 @@
-
-
-
-  以下是修复后的完整工作流文件，主要修正了 Firebase Test 步骤的 YAML 缩进问题：
-    
-    ```yaml
   name: Android CI (minSdk24)
 
   on:
