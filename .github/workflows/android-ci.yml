@@ -60,17 +60,27 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        device: [
-          { model: "Nexus5X", version: 24, locale: "en_US" },
-          { model: "Nexus6P", version: 24, locale: "en_GB" },
-          { model: "Pixel", version: 25 },
-          { model: "Pixel2", version: 27 },
-          { model: "Pixel3", version: 28 },
-          { model: "Pixel4", version: 29 },
-          { model: "Pixel5", version: 30 },
-          { model: "GalaxyS20", version: 30 },
-          { model: "Xperia10II", version: 29 }
-        ]
+        device:
+          - model: "Nexus5X"
+            version: 24
+            locale: "en_US"
+          - model: "Nexus6P"
+            version: 24
+            locale: "en_GB"
+          - model: "Pixel"
+            version: 25
+          - model: "Pixel2"
+            version: 27
+          - model: "Pixel3"
+            version: 28
+          - model: "Pixel4"
+            version: 29
+          - model: "Pixel5"
+            version: 30
+          - model: "GalaxyS20"
+            version: 30
+          - model: "Xperia10II"
+            version: 29
     steps:
       - name: Download APK
         uses: actions/download-artifact@v4
@@ -89,7 +99,7 @@ jobs:
           device:
             model: ${{ matrix.device.model }}
             version: ${{ matrix.device.version }}
-            locale: ${{ matrix.device.locale || 'en_US' }}
+            locale: ${{ matrix.device.locale | default('en_US') }}
             orientation: portrait
           results-dir: test-results/${{ matrix.device.model }}
 
@@ -112,7 +122,8 @@ jobs:
           ./gradlew checkApiCompatibility -PminSdk=24
           ./gradlew lintDebug -Dlint.baseline=compat-baseline.xml
 
+          # 检查64位ABI配置
           if ! grep -q "ndk.abiFilters" app/build.gradle; then
             echo "Missing 64-bit ABI configuration!"
             exit 1
-          fi  # 修复点：确保fi单独成行且正确闭合
+          fi  # 确保fi单独成行
