@@ -2,6 +2,22 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id "com.github.ben-manes.versions" version "0.51.0"
+     id 'jacoco'
+}
+jacoco {
+    toolVersion = "0.8.11"
+}
+
+task jacocoTestReport(type: JacocoReport) {
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+    sourceDirectories.from = files(["src/main/java"])
+    classDirectories.from = files(fileTree(dir: "build/intermediates/javac/debug/classes"))
+    executionData.from = files("build/jacoco/testDebugUnitTest.exec")
 }
 
 android {
@@ -18,6 +34,13 @@ android {
         ndk {
             abiFilters 'armeabi','armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
         }
+        
+        lintOptions {
+            htmlReport true
+            xmlReport true
+            htmlOutput file("$buildDir/reports/lint-results.html")
+        }
+        
         multiDexEnabled true // 启用 multidex
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
