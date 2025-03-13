@@ -42,7 +42,7 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
     // 语音消息优先级系统
     private enum class MsgPriority { CRITICAL, HIGH, NORMAL }
 
-    // 语音消息数据结构
+    // 在SpeechItem的ageFactor计算中使用同步机制
     private data class SpeechItem(
         val text: String,
         val direction: String,
@@ -52,9 +52,10 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
         val vibrationPattern: LongArray? = null,
         val id: String = UUID.randomUUID().toString()
     ) : Comparable<SpeechItem> {
-
-        private val ageFactor: Float get() =
+        // 使用同步机制获取时间戳
+        private val ageFactor: Float get() = synchronized(this) {
             1 - (System.currentTimeMillis() - timestamp).coerceAtMost(5000L) / 5000f
+        }
 
         val dynamicPriority: Int get() = when (basePriority) {
             MsgPriority.CRITICAL -> (1000 * ageFactor).toInt()
@@ -94,7 +95,20 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
     private val contextMemory = ConcurrentHashMap<String, ObjectContext>()
 
     // 新增：最近消息记录和同步锁
-    private val recentMessages = ConcurrentHashMap<String, Long>()
+    // 使用带TTL的ConcurrentHashMap
+    private val recentMessages = object : ConcurrentHashMap<String, Long>() {
+        private val cleaner = Executors.newSingleThreadScheduledExecutor()
+        init {
+            cleaner.scheduleWithFixedDelay(::removeExpiredEntries, 1, 1, TimeUnit.MINUTES)
+        }
+
+        private fun removeExpiredEntries() {
+            val now = System.currentTimeMillis()
+            keys().asSequence().filter { get(it)?.let { ts -> now - ts > 300_000 } ?: false }
+                .forEach { remove(it) }
+        }
+    }
+
     private val queueLock = ReentrantLock()
 
     companion object {
@@ -142,6 +156,7 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
         )
     }
 
+    // 在onInit方法中添加资源释放处理
     override fun onInit(status: Int) {
         executor.submit {
             when {
@@ -149,7 +164,11 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
                     setupTTS()
                     processNextInQueue() // 初始化完成后触发队列处理
                 }
-                else -> showToast("语音功能初始化失败", true)
+                else -> {
+                    showToast("语音功能初始化失败", true)
+                    tts.stop() // 关闭语音引擎
+                    tts.shutdown()
+                }
             }
         }
     }
@@ -206,11 +225,20 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
     }
 
     private fun processBatch() {
-        val batch = mutableListOf<Detection>().apply {
-            while (pendingDetections.isNotEmpty()) pendingDetections.poll()?.let { add(it) }
+        try {
+            val batch = mutableListOf<Detection>().apply {
+                while (pendingDetections.isNotEmpty()) pendingDetections.poll()?.let { add(it) }
+            }
+            mergeDetections(batch).forEach {
+                try {
+                    processSingleDetection(it)
+                } catch (e: Exception) {
+                    Log.e("ProcessBatch", "处理单个检测失败", e)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ProcessBatch", "批处理失败", e)
         }
-        val mergedDetections = mergeDetections(batch)  // 明确接收合并结果
-        mergedDetections.forEach { processSingleDetection(it) }
     }
     // endregion
 
@@ -237,10 +265,11 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
         return merged
     }
 
+    // 在processSingleDetection方法中添加空值检查
     private fun processSingleDetection(result: Detection) {
         if (!checkTtsHealth()) return
 
-        result.categories.maxByOrNull { it.score }
+        result.categories.takeIf { it.isNotEmpty() }?.maxByOrNull { it.score }
             ?.takeIf { it.score >= CONFIDENCE_THRESHOLD }
             ?.let { category ->
                 val label = getChineseLabel(category.label)
@@ -250,9 +279,9 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
             }
     }
 
-    // 新增：构建检测消息方法
+    // 在buildDetectionMessage方法中添加标签合法性检查
     private fun buildDetectionMessage(result: Detection, label: String): Quadruple<String, String, MsgPriority, String>? {
-        if (shouldSuppressMessage(label)) return null
+        if (shouldSuppressMessage(label) || label.isEmpty()) return null // 添加标签合法性检查
 
         val context = contextMemory.compute(label) { _, v ->
             v?.apply { speedFactor = max(0.5f, speedFactor * 0.9f) } ?: ObjectContext()
@@ -483,7 +512,7 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
 
     // endregion
 
-    // 修改2：强化入队过滤逻辑
+    // 修改2：强化入队过滤逻辑 增强线程安全性
     private fun enqueueMessage(message: String, direction: String, priority: MsgPriority, label: String) {
         // 组合更多维度作为唯一键
         val messageKey = "${label}_${direction}_${message.hashCode()}"
@@ -500,26 +529,26 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
             } == true) return
 
         // 增加内存队列检查
-        if (speechQueue.any { it.label == label && it.direction == direction && it.text == message }) return
-
-        recentMessages[messageKey] = System.currentTimeMillis()
-
-        val item = SpeechItem(
-            text = message,
-            direction = direction,
-            basePriority = priority,
-            label = label,  // 添加label参数
-            vibrationPattern = when (priority) {
-                MsgPriority.CRITICAL -> longArrayOf(0, 500, 200, 300)
-                MsgPriority.HIGH -> longArrayOf(0, 300, 100, 200)
-                MsgPriority.NORMAL -> longArrayOf(0, 200)
-            }
-        )
-
         queueLock.withLock {
-            if (!speechQueue.any { it.label == label && it.direction == direction }) {
-                speechQueue.put(item)
-                triggerVibration(item)
+            if (!speechQueue.any { it.label == label && it.direction == direction && it.text == message }) {
+                recentMessages[messageKey] = System.currentTimeMillis()
+
+                val item = SpeechItem(
+                    text = message,
+                    direction = direction,
+                    basePriority = priority,
+                    label = label,  // 添加label参数
+                    vibrationPattern = when (priority) {
+                        MsgPriority.CRITICAL -> longArrayOf(0, 500, 200, 300)
+                        MsgPriority.HIGH -> longArrayOf(0, 300, 100, 200)
+                        MsgPriority.NORMAL -> longArrayOf(0, 200)
+                    }
+                )
+
+                if (!speechQueue.any { it.label == label && it.direction == direction }) {
+                    speechQueue.put(item)
+                    triggerVibration(item)
+                }
             }
         }
         processNextInQueue()
@@ -593,6 +622,7 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
     }
 
     // region 振动反馈
+    // 在triggerVibration方法中添加设备兼容性检查
     private fun triggerVibration(item: SpeechItem) {
         vibrator?.let {
             try {
@@ -606,9 +636,8 @@ class FeedbackManager(context: Context) : TextToSpeech.OnInitListener {
             } catch (e: Exception) {
                 Log.e("Vibration", "振动失败: ${e.message}")
             }
-        }
+        } ?: Log.d("Vibration", "设备不支持振动功能")
     }
-    // endregion
 
     // region 工具方法
     private fun showToast(message: String, isLong: Boolean = false) {
