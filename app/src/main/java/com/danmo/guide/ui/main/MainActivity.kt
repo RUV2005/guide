@@ -19,6 +19,7 @@ import com.danmo.guide.databinding.ActivityMainBinding
 import com.danmo.guide.feature.camera.CameraManager
 import com.danmo.guide.feature.camera.ImageProxyUtils
 import com.danmo.guide.feature.detection.ObjectDetectorHelper
+import com.danmo.guide.feature.feedback.DetectionProcessor
 import com.danmo.guide.feature.feedback.FeedbackManager
 import com.danmo.guide.ui.components.OverlayView
 import com.danmo.guide.ui.settings.SettingsActivity
@@ -43,7 +44,6 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val LIGHT_THRESHOLD = 10.0f // 低于此值开启闪光灯
     }
-
 
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -80,7 +80,6 @@ class MainActivity : ComponentActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
     }
-
 
     // 传感器事件监听器
     private val lightSensorListener = object : SensorEventListener {
@@ -187,7 +186,9 @@ class MainActivity : ComponentActivity() {
         lastStatusUpdateTime = currentTime
 
         val filtered = results.filter { detection ->
-            (detection.categories.maxByOrNull { it.score }?.let { it.score >= FeedbackManager.CONFIDENCE_THRESHOLD } ?: false)
+            detection.categories.maxByOrNull { it.score }?.let { category ->
+                category.score >= DetectionProcessor.confidenceThreshold
+            } ?: false
         }
 
         runOnUiThread {
@@ -210,7 +211,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun getChineseLabel(originalLabel: String): String {
-        return feedbackManager.getChineseLabel(originalLabel)
+        return DetectionProcessor.getInstance(this).getChineseLabel(originalLabel)
     }
 
     private fun showToast(message: String) {
