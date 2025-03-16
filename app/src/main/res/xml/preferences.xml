@@ -2,7 +2,6 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools">
-    xmlns:tools="http://schemas.android.com/tools" <!-- 新增工具命名空间 -->
 
     <!-- 语音设置 Category 必须严格闭合 -->
     <PreferenceCategory
