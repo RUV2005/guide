@@ -21,6 +21,7 @@ task jacocoTestReport(type: JacocoReport) {
 }
 
 android {
+    android.buildFeatures.buildConfig true
     namespace 'com.danmo.guide'
     compileSdk 35
 
@@ -50,8 +51,12 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            buildConfigField "String", "IPDATA_API_KEY", "\"2e5588b836580a8dddab84752f4be981f293033ff17909963e4993f2\""
+            buildConfigField "String", "OPENWEATHER_API_KEY", "\"e50c756f96b046b54d6fdf60a941413a\""
         }
         debug {
+            buildConfigField "String", "IPDATA_API_KEY", "\"2e5588b836580a8dddab84752f4be981f293033ff17909963e4993f2\""
+            buildConfigField "String", "OPENWEATHER_API_KEY", "\"e50c756f96b046b54d6fdf60a941413a\""
             packagingOptions {
                 doNotStrip '*/armeabi/*.so'
                 doNotStrip '*/armeabi-v7a/*.so'
@@ -135,6 +140,11 @@ dependencies {
         exclude group: 'com.google.ai.edge.litert', module: 'litert-api'
     }
     implementation(libs.material)
+    // OkHttp 网络库
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    // Gson 解析库
+    implementation 'com.google.code.gson:gson:2.10.1'
     // 其他
     implementation(libs.oboe)
     implementation libs.media3.exoplayer

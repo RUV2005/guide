@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <meta-data
+        android:name="ipdata_api_key"
+        android:value="2e5588b836580a8dddab84752f4be981f293033ff17909963e4993f2" />
+    <meta-data
+        android:name="openweather_api_key"
+        android:value="e50c756f96b046b54d6fdf60a941413a" />
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />

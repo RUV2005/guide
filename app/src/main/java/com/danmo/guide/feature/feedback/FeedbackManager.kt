@@ -57,6 +57,15 @@ class FeedbackManager(context: Context) {
         ttsManager.updateLanguage(languageCode)
         messageQueueManager.clearQueue()
     }
+    fun enqueueWeatherAnnouncement(text: String) {
+        messageQueueManager.enqueueMessage(
+            message = text,
+            direction = "",
+            priority = MessageQueueManager.MsgPriority.HIGH,
+            label = "weather",
+            vibrationPattern = longArrayOf(100)
+        )
+    }
 
     fun clearQueue() {
         messageQueueManager.clearQueue()

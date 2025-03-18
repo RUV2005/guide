@@ -8,6 +8,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.location.LocationManager
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -15,14 +16,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageAnalysis
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.danmo.guide.databinding.ActivityMainBinding
 import com.danmo.guide.feature.camera.CameraManager
 import com.danmo.guide.feature.camera.ImageProxyUtils
 import com.danmo.guide.feature.detection.ObjectDetectorHelper
 import com.danmo.guide.feature.feedback.DetectionProcessor
 import com.danmo.guide.feature.feedback.FeedbackManager
+import com.danmo.guide.feature.weather.WeatherManager
 import com.danmo.guide.ui.components.OverlayView
 import com.danmo.guide.ui.settings.SettingsActivity
+import kotlinx.coroutines.launch
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.task.vision.detector.Detection
 import java.util.concurrent.ExecutorService
@@ -34,6 +38,8 @@ import kotlin.math.abs
  * Main Activity handling camera preview, object detection and environment sensing
  */
 class MainActivity : ComponentActivity() {
+    private lateinit var weatherManager: WeatherManager
+    private var isWeatherAnnounced = false
     // 视图绑定实例 / View binding instance
     private lateinit var binding: ActivityMainBinding
 
@@ -67,43 +73,96 @@ class MainActivity : ComponentActivity() {
         const val LIGHT_THRESHOLD = 10.0f
     }
 
-    // 权限请求回调 / Permission request callback
-    private val permissionsLauncher = registerForActivityResult(
+    private val locationPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        when {
+            results.all { it.value } -> {
+                getWeatherAndAnnounce()
+                checkCameraPermission()  // 位置权限通过后检查相机
+            }
+            results.any { !it.value } -> {
+                showToast("部分权限未授予，可能影响天气功能")
+                checkCameraPermission()  // 继续检查相机权限
+            }
+        }
+    }
+
+    private val cameraPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
             startCamera()
         } else {
-            // 根据用户是否选择"不再询问"显示不同提示
-            // Show different prompts based on "Don't ask again" selection
-            if (shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
-                showToast("需要相机权限来提供导览功能，请授予权限")
-            } else {
-                showToast("相机权限被永久拒绝，请到应用设置中启用")
+            showToast("相机功能不可用")
+        }
+    }
+
+    // 添加天气获取逻辑
+    private fun getWeatherAndAnnounce() {
+        lifecycleScope.launch {
+            if (isWeatherAnnounced) return@launch
+            isWeatherAnnounced = true
+
+            // 优先使用GPS定位
+            val location = getLastKnownLocation() ?: run {
+                // 降级使用IP定位
+                weatherManager.getLocationByIP()
             }
+
+            location?.let {
+                val weather = weatherManager.getWeather(it.latitude, it.longitude)
+                weather?.let { data ->
+                    val speechText = weatherManager.generateSpeechText(data)
+                    FeedbackManager.getInstance(this@MainActivity)
+                        .enqueueWeatherAnnouncement(speechText)
+                }
+            } ?: showToast("无法获取位置信息")
+        }
+    }
+
+    // 获取最后已知位置
+    @SuppressLint("MissingPermission")
+    private fun getLastKnownLocation(): WeatherManager.GeoLocation? {
+        return try {
+            val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+            val location = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+
+            location?.let {
+                WeatherManager.GeoLocation(
+                    latitude = it.latitude,
+                    longitude = it.longitude,
+                    city = "未知",
+                    country_name = "未知"
+                )
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 初始化视图绑定 / Initialize view binding
+        weatherManager = WeatherManager(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // 初始化线程池和组件 / Initialize thread pool and components
+        // 初始化组件
         cameraExecutor = Executors.newSingleThreadExecutor()
         overlayView = binding.overlayView
         objectDetectorHelper = ObjectDetectorHelper(this)
         feedbackManager = FeedbackManager(this)
         cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
 
-        // 初始化光线传感器 / Initialize light sensor
+        // 初始化传感器
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
 
-        checkCameraPermission()
+        // 启动权限检查流程（新增）
+        checkPermissions()  // 先检查位置权限
+        checkCameraPermission()  // 再检查相机权限
 
-        // 设置按钮点击监听 / Set button click listener
         binding.fabSettings.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
@@ -134,6 +193,26 @@ class MainActivity : ComponentActivity() {
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
 
+    // 修改checkPermissions方法
+    private fun checkPermissions() {
+        // 检查位置权限
+        val locationPermissions = arrayOf(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+
+        val missingLocation = locationPermissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missingLocation.isNotEmpty()) {
+            locationPermissionsLauncher.launch(missingLocation.toTypedArray())
+        } else {
+            getWeatherAndAnnounce()
+            checkCameraPermission()  // 位置权限通过后检查相机权限
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         // 注册传感器监听 / Register sensor listener
@@ -153,13 +232,14 @@ class MainActivity : ComponentActivity() {
     }
 
     // 检查相机权限 / Check camera permission
+    // 修改checkCameraPermission方法
     private fun checkCameraPermission() {
         when {
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.CAMERA
             ) == PackageManager.PERMISSION_GRANTED -> startCamera()
-            else -> permissionsLauncher.launch(Manifest.permission.CAMERA)
+            else -> cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
