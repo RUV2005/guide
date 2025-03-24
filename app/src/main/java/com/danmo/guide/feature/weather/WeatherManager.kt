@@ -10,7 +10,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
 class WeatherManager(private val context: Context) {
     companion object {
@@ -56,8 +59,14 @@ class WeatherManager(private val context: Context) {
                 response = client.newCall(request).execute()
                 if (response!!.isSuccessful) {
                     response!!.body?.string()?.let { json ->
-                        return@withContext gson.fromJson(json, GeoLocation::class.java)
+                        val geoLocation = gson.fromJson(json, GeoLocation::class.java)
+                        // 添加日志记录城市信息
+                        Log.d("Weather", "IP定位成功，城市：${geoLocation.city}")
+                        return@withContext geoLocation
                     }
+                } else {
+                    // 添加日志记录请求失败
+                    Log.e("Weather", "IP定位请求失败，状态码：${response?.code}")
                 }
                 null
             } catch (e: Exception) {
@@ -75,21 +84,25 @@ class WeatherManager(private val context: Context) {
         return withContext(Dispatchers.IO) {
             try {
                 val apiKey = BuildConfig.OPENWEATHER_API_KEY
-                val url = "https://api.openweathermap.org/data/2.5/weather?" +
-                        "lat=$lat&lon=$lon&appid=$apiKey&units=metric&lang=zh_cn"
+                val url = "https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lon&appid=$apiKey&units=metric&lang=zh_cn"
 
                 val request = Request.Builder().url(url).build()
                 response = client.newCall(request).execute()
 
                 if (response!!.isSuccessful) {
                     response!!.body?.string()?.let { json ->
-                        return@withContext gson.fromJson(json, WeatherData::class.java).apply {
-                            // 数据完整性检查
-                            if (name.isNullOrEmpty() || weather.isNullOrEmpty()) {
-                                throw IllegalStateException("返回数据不完整")
-                            }
+                        val weatherData = gson.fromJson(json, WeatherData::class.java)
+                        // 数据完整性检查
+                        if (weatherData.name.isNullOrEmpty() || weatherData.weather.isNullOrEmpty()) {
+                            throw IllegalStateException("返回数据不完整")
                         }
+                        // 添加日志记录城市信息
+                        Log.d("Weather", "获取天气数据成功，城市：${weatherData.name}")
+                        return@withContext weatherData
                     }
+                } else {
+                    // 添加日志记录请求失败
+                    Log.e("Weather", "天气数据请求失败，状态码：${response?.code}")
                 }
                 null
             } catch (e: Exception) {
@@ -101,23 +114,86 @@ class WeatherManager(private val context: Context) {
         }
     }
 
-    // 生成语音文本
-    fun generateSpeechText(weather: WeatherData): String {
+    fun generateSpeechText(weather: WeatherData, time: String? = null): String {
         return buildString {
             try {
-                append("当前位置：${getChineseCityName(weather.name)}，")
-                append("温度：${weather.main?.temp?.toInt() ?: "未知"}℃，")
-                append("体感温度：${weather.main?.feelsLike?.toInt() ?: "未知"}℃，")
-                append("天气状况：${weather.weather?.firstOrNull()?.description ?: "未知"}，")
-                append("风速：${weather.wind?.speed?.toInt() ?: "未知"}米每秒，")
-                append("湿度：${weather.main?.humidity ?: "未知"}%")
+                // 如果传入的时间为 null，则获取系统当前时间
+                val currentTime = time ?: System.currentTimeMillis().let {
+                    SimpleDateFormat("HH:mm", Locale.getDefault()).format(it)
+                }
+                val cityName = getChineseCityName(weather.name)
+                val temp = weather.main?.temp?.toInt() ?: 999
+                val feelsLike = weather.main?.feelsLike?.toInt() ?: 999
+                val weatherDesc = weather.weather?.firstOrNull()?.description ?: ""
+                val windSpeed = weather.wind?.speed?.toInt() ?: 0
+
+                append("亲爱的先行体验官，")
+                // 智能时间问候
+                val hourPart = currentTime.split(":").getOrNull(0)?.toIntOrNull()
+                if (hourPart != null) {
+                    append(
+                        when {
+                            hourPart in 5..9 -> "早上好呀！"
+                            hourPart in 10..12 -> "上午好呀！"
+                            hourPart in 13..17 -> "下午好呀！"
+                            hourPart in 18..21 -> "晚上好呀！"
+                            else -> "您好"
+                        }
+                    )
+                } else {
+                    append("您好")
+                }
+
+                // 城市播报
+                append("$cityName,现在")
+
+                // 温度播报
+                when {
+                    temp == 999 -> append("暂时获取不到温度数据哦")
+                    temp <= 0 -> append("零下${abs(temp)}度，外面很冷，注意保暖呀")
+                    temp in 1..10 -> append("${temp}度，有点冷，出门穿厚点哦")
+                    temp in 11..20 -> append("${temp}度，温度舒适呢")
+                    temp in 21..28 -> append("${temp}度，穿短袖就行啦")
+                    temp > 28 -> append("${temp}度，有点热，注意防暑哦")
+                }
+
+                // 天气现象播报
+                when {
+                    "雨" in weatherDesc -> append("，外面在下雨哦，记得带伞")
+                    "雪" in weatherDesc -> append("，外面在下雪哦，出去玩要注意保暖呀")
+                    "雷" in weatherDesc -> append("，外面有雷阵雨，要注意安全哦")
+                    "晴" in weatherDesc && temp > 25 -> append("，阳光明媚，注意防晒哦")
+                    "云" in weatherDesc -> append("，有点云，天气不错呀")
+                    "雾" in weatherDesc -> append("，外面有雾，出行要注意安全哦")
+                }
+
+                // 风力提醒
+                when {
+                    windSpeed > 7 -> append("，外面风好大哦，出去要注意安全呀")
+                    windSpeed in 5..7 -> append("，风有点大，要注意一下哦")
+                    windSpeed in 3..4 -> append("，有微微的风，很舒服呢")
+                }
+
+                // 智能生活建议
+                when {
+                    "雨" in weatherDesc -> append("，出门一定要记得带伞哦")
+                    temp < 5 -> append("，天气冷，秋裤一定要穿好哦")
+                    temp > 30 && "晴" in weatherDesc -> append("，天气热，记得涂防晒霜哦")
+                    windSpeed > 5 -> append("，风大，出门戴好口罩哦")
+                    else -> append("，今天天气不错，出去走走吧")
+                }
+
             } catch (e: Exception) {
                 Log.e("Weather", "生成语音文本失败", e)
-                append("天气信息生成异常，请稍后再试")
+                "天气小助手正在努力更新数据，稍后再来问我吧～"
             }
+        }.run {
+            // 智能标点处理
+            replace("，)", ")")
+                .replace("，。", "。")
+                .replace("！。", "！")
         }
     }
-
     // 数据类
     data class GeoLocation(
         val latitude: Double,
