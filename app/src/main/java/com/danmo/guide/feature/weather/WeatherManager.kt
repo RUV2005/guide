@@ -145,7 +145,7 @@ class WeatherManager(private val context: Context) {
                 }
 
                 // 城市播报
-                append("$cityName,现在")
+                append("您目前位于$cityName,现在")
 
                 // 温度播报
                 when {
