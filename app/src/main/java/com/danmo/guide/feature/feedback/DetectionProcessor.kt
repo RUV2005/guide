@@ -9,172 +9,89 @@ import java.util.concurrent.*
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * 物体检测结果处理器 | Object Detection Result Processor
- * 主要功能：处理来自TFLite的检测结果，生成提示消息，管理消息队列
- * Main responsibilities: Process TFLite detection results, generate alerts, manage message queue
- */
 class DetectionProcessor {
-    // 线程安全的待处理检测队列 | Thread-safe queue for pending detections
     private val pendingDetections = ConcurrentLinkedQueue<Detection>()
-
-    // 定时批处理执行器（单线程）| Scheduled executor for batch processing (single thread)
     private val batchProcessor = Executors.newSingleThreadScheduledExecutor()
-
-    // 目标上下文记忆（用于控制消息频率）| Context memory for objects (controls message frequency)
     private val contextMemory = ConcurrentHashMap<String, ObjectContext>()
-
-    // Android上下文（延迟初始化）| Android context (late-init)
     private lateinit var context: Context
-
-    // 消息队列管理器（懒加载）| Message queue manager (lazy initialization)
     private val messageQueueManager: MessageQueueManager by lazy { MessageQueueManager.getInstance(context) }
 
-    /**
-     * 目标上下文数据类 | Object context data class
-     * @property lastReportTime 最后报告时间 | Last reported timestamp
-     * @property speedFactor 动态速度因子（控制消息频率）| Dynamic speed factor (controls message rate)
-     */
     private data class ObjectContext(
         var lastReportTime: Long = 0,
-        var speedFactor: Float = 1.0f
+        var speedFactor: Float = 1.0f,
+        var lastPosition: RectF? = null,
+        var lastDirection: String = "",
+        var lastDistance: String = ""
     )
 
     companion object {
-        // 批处理间隔（毫秒）| Batch processing interval (ms)
         private const val BATCH_INTERVAL_MS = 50L
-
-        // 最小报告间隔（毫秒）| Minimum reporting interval (ms)
-        private const val MIN_REPORT_INTERVAL_MS = 500L
-
-        // 默认置信度阈值 | Default confidence threshold
+        private const val MIN_REPORT_INTERVAL_MS = 1500L
+        private const val MIN_DIRECTION_CHANGE_INTERVAL = 800L
         private const val DEFAULT_CONFIDENCE_THRESHOLD = 0.4f
-
-        // 危险目标标签集合 | Dangerous object labels
         private val DANGEROUS_LABELS = setOf("car", "person", "bus", "truck")
 
-        // 屏幕区域划分常量（横向）| Screen division constants (horizontal)
-        private const val COLUMN_1 = 0.25f
-        private const val COLUMN_2 = 0.5f
-        private const val COLUMN_3 = 0.75f
+        // 三维感知参数
+        private const val FAR_DISTANCE_THRESHOLD = 0.15f   // 宽度小于15%视为远处
+        private const val CLOSE_DISTANCE_THRESHOLD = 0.3f // 宽度大于30%视为近处
+        private const val MOVEMENT_THRESHOLD = 0.02f       // 移动检测阈值
 
-        // 屏幕区域划分常量（纵向）| Screen division constants (vertical)
-        private const val ROW_1 = 0.25f
-        private const val ROW_2 = 0.5f
-        private const val ROW_3 = 0.75f
+        // 方向分区阈值
+        private const val COLUMN_LEFT = 0.33f
+        private const val COLUMN_RIGHT = 0.77f
+        private const val ROW_FAR = 0.25f
+        private const val ROW_NEAR = 0.66f
 
-        // 单例相关 | Singleton related
         @SuppressLint("StaticFieldLeak")
         @Volatile
         private var instance: DetectionProcessor? = null
-        private var _confidenceThreshold: Float = DEFAULT_CONFIDENCE_THRESHOLD  // 当前置信度阈值 | Current confidence threshold
+        private var _confidenceThreshold: Float = DEFAULT_CONFIDENCE_THRESHOLD
 
-        /**
-         * 置信度阈值访问器 | Confidence threshold accessors
-         */
         var confidenceThreshold: Float
             get() = _confidenceThreshold
-            set(value) {
-                _confidenceThreshold = value
-            }
+            set(value) { _confidenceThreshold = value }
 
-        /**
-         * 获取单例实例 | Get singleton instance
-         * @param context Android上下文 | Android context
-         */
         fun getInstance(context: Context): DetectionProcessor {
             return instance ?: synchronized(this) {
                 instance ?: DetectionProcessor().also {
                     instance = it
-                    it.context = context.applicationContext  // 绑定应用上下文 | Bind application context
+                    it.context = context.applicationContext
                 }
             }
         }
     }
 
-    /**
-     * 4x4方向矩阵（基于屏幕区域划分）| 4x4 direction matrix (based on screen zones)
-     * 列索引：| Column indexes:
-     * 0 - 左半区（x < 0.25）| Left zone (x < 0.25)
-     * 1 - 中左区（0.25 ≤ x < 0.5）| Middle-left zone (0.25 ≤ x < 0.5)
-     * 2 - 中右区（0.5 ≤ x < 0.75）| Middle-right zone (0.5 ≤ x < 0.75)
-     * 3 - 右半区（x ≥ 0.75）| Right zone (x ≥ 0.75)
-     *
-     * 行索引：| Row indexes:
-     * 0 - 远距离（屏幕顶部25%）| Far distance (top 25%)
-     * 1 - 中距离 | Medium distance
-     * 2 - 近距离 | Close distance
-     * 3 - 超近距离（屏幕底部25%）| Very close (bottom 25%)
-     */
-    private val directionNames = arrayOf(
-        // 列0 | Column 0
-        arrayOf("左后远", "左后方", "左前近", "左前远"),    // Far back-left, Back-left, Close front-left, Far front-left
-        // 列1 | Column 1
-        arrayOf("后偏左", "正后方", "正前方", "前偏左"),    // Back-left, Direct back, Direct front, Front-left
-        // 列2 | Column 2
-        arrayOf("后偏右", "正后方", "正前方", "前偏右"),    // Back-right, Direct back, Direct front, Front-right
-        // 列3 | Column 3
-        arrayOf("右后远", "右后方", "右前近", "右前远")     // Far back-right, Back-right, Close front-right, Far front-right
-    )
-
-    // 初始化定时批处理任务 | Initialize scheduled batch processing
     init {
         batchProcessor.scheduleWithFixedDelay(
-            ::processBatch,  // 处理函数 | Processing function
-            0,                // 初始延迟 | Initial delay
-            BATCH_INTERVAL_MS, // 执行间隔 | Execution interval
-            TimeUnit.MILLISECONDS
+            ::processBatch, 0, BATCH_INTERVAL_MS, TimeUnit.MILLISECONDS
         )
     }
 
-    /**
-     * 接收检测结果（线程安全）| Receive detection results (thread-safe)
-     * @param result 物体检测结果 | Object detection result
-     */
     fun handleDetectionResult(result: Detection) {
         pendingDetections.add(result)
     }
 
-    /**
-     * 批处理核心方法 | Core batch processing method
-     * 1. 取出队列中的所有检测结果 | Retrieve all queued detections
-     * 2. 合并重叠的检测框 | Merge overlapping bounding boxes
-     * 3. 逐个处理有效检测 | Process each valid detection
-     */
     private fun processBatch() {
         try {
             val batch = mutableListOf<Detection>().apply {
-                // 清空队列并收集所有待处理结果 | Drain queue and collect all pending results
-                while (pendingDetections.isNotEmpty()) pendingDetections.poll()?.let { add(it) }
+                while (pendingDetections.isNotEmpty()) {
+                    pendingDetections.poll()?.let { add(it) }
+                }
             }
-
-            // 合并重叠检测后逐个处理 | Process merged detections
             mergeDetections(batch).forEach {
                 try {
                     processSingleDetection(it)
                 } catch (e: Exception) {
-                    Log.e("ProcessBatch", "处理单个检测失败 | Failed to process single detection", e)
+                    Log.e("ProcessBatch", "处理单个检测失败", e)
                 }
             }
         } catch (e: Exception) {
-            Log.e("ProcessBatch", "批处理失败 | Batch processing failed", e)
+            Log.e("ProcessBatch", "批处理失败", e)
         }
     }
 
-    /**
-     * 合并重叠检测框算法 | Algorithm for merging overlapping detections
-     * 策略：| Strategy:
-     * 1. 按检测框面积从大到小排序 | Sort by bounding box area (descending)
-     * 2. 重叠率超过60%且同类目标则合并 | Merge if overlap >60% and same label
-     * @return 合并后的检测结果列表 | Merged detection list
-     */
+    // 修复后的mergeDetections方法
     private fun mergeDetections(detections: List<Detection>): List<Detection> {
-        /**
-         * 计算两个矩形的重叠比例 | Calculate overlap ratio between two rectangles
-         * @param a 第一个矩形 | First rectangle
-         * @param b 第二个矩形 | Second rectangle
-         * @return 重叠比例（0.0-1.0）| Overlap ratio (0.0-1.0)
-         */
         fun overlapRatio(a: RectF, b: RectF): Float {
             val interWidth = max(0f, min(a.right, b.right) - max(a.left, b.left))
             val interHeight = max(0f, min(a.bottom, b.bottom) - max(a.top, b.top))
@@ -183,42 +100,33 @@ class DetectionProcessor {
             return if (unionArea > 0) interArea / unionArea else 0f
         }
 
-        val merged = mutableListOf<Detection>()
-        // 按检测框面积降序处理 | Process in descending order of bounding box area
+        // 正确初始化可变列表
+        val merged: MutableList<Detection> = mutableListOf()
+
         detections.sortedByDescending { it.boundingBox.width() }.forEach { detection ->
-            // 检查是否与已合并目标重叠 | Check overlap with existing detections
             if (merged.none { existing ->
                     overlapRatio(existing.boundingBox, detection.boundingBox) > 0.6 &&
                             existing.categories.any { it.label == detection.categories.first().label }
                 }) {
-                merged.add(detection)
+                merged.add(detection) // 现在可以正确调用 add()
             }
         }
         return merged
     }
 
-    /**
-     * 处理单个检测结果 | Process single detection result
-     * 主要逻辑：| Main logic:
-     * 1. 筛选有效检测（置信度达标）| Filter valid detections (meet confidence threshold)
-     * 2. 构建提示消息 | Build alert message
-     * 3. 管理消息发送频率 | Manage message frequency
-     */
     private fun processSingleDetection(result: Detection) {
         result.categories
-            .takeIf { it.isNotEmpty() }  // 过滤空分类 | Filter empty categories
-            ?.maxByOrNull { it.score }   // 取最高分分类 | Get highest score category
-            ?.takeIf { it.score >= confidenceThreshold }  // 置信度检查 | Confidence check
+            .takeIf { it.isNotEmpty() }
+            ?.maxByOrNull { it.score }
+            ?.takeIf { it.score >= confidenceThreshold }
             ?.let { category ->
-                val label = getChineseLabel(category.label)  // 获取本地化标签 | Get localized label
+                val label = getChineseLabel(category.label)
                 buildDetectionMessage(result, label)?.let { (message, dir, pri, lbl) ->
-                    // 将消息加入队列 | Enqueue message
                     messageQueueManager.enqueueMessage(
                         message = message,
                         direction = dir,
                         priority = pri,
                         label = lbl,
-                        // 根据优先级设置震动模式 | Set vibration pattern based on priority
                         vibrationPattern = when (pri) {
                             MessageQueueManager.MsgPriority.CRITICAL -> longArrayOf(0, 500, 200, 300)
                             MessageQueueManager.MsgPriority.HIGH -> longArrayOf(0, 300, 100, 200)
@@ -229,43 +137,96 @@ class DetectionProcessor {
             }
     }
 
-    /**
-     * 构建检测消息四元组 | Build detection message quadruple
-     * @return (消息内容, 方向, 优先级, 标签) 或 null（当需要抑制消息时）| (message, direction, priority, label) or null
-     */
+    private fun calculateDirectionInfo(currentBox: RectF, lastBox: RectF?): Triple<String, String, String> {
+        // 距离判断
+        val width = currentBox.width()
+        val distanceLevel = when {
+            width < FAR_DISTANCE_THRESHOLD -> "远处"
+            width < CLOSE_DISTANCE_THRESHOLD -> "中距离"
+            else -> "近距离"
+        }
+
+        // 方向判断
+        val centerX = currentBox.centerX()
+        val centerY = currentBox.centerY()
+        val direction = when {
+            centerX < COLUMN_LEFT -> when {
+                centerY < ROW_FAR -> "左后远"
+                centerY < ROW_NEAR -> "左后方"
+                else -> "左前近"
+            }
+            centerX > COLUMN_RIGHT -> when {
+                centerY < ROW_FAR -> "右后远"
+                centerY < ROW_NEAR -> "右后方"
+                else -> "右前近"
+            }
+            else -> when {
+                centerY < ROW_FAR -> "正后方"
+                centerY > ROW_NEAR -> "正前方"
+                else -> if (centerX < 0.5) "前偏左" else "前偏右"
+            }
+        }
+
+        // 运动趋势判断
+        val trend = calculateMovementTrend(currentBox, lastBox)
+
+        return Triple(direction, distanceLevel, trend)
+    }
+
+    private fun calculateMovementTrend(currentBox: RectF, lastBox: RectF?): String {
+        if (lastBox == null) return "静止"
+
+        val xMovement = currentBox.centerX() - lastBox.centerX()
+        val sizeChange = currentBox.width() - lastBox.width()
+
+        return when {
+            sizeChange > 0.03 -> "快速接近"
+            sizeChange < -0.03 -> "快速远离"
+            xMovement > MOVEMENT_THRESHOLD -> "向右移动"
+            xMovement < -MOVEMENT_THRESHOLD -> "向左移动"
+            sizeChange > 0.01 -> "缓慢接近"
+            sizeChange < -0.01 -> "缓慢远离"
+            else -> "静止"
+        }
+    }
+
     private fun buildDetectionMessage(
         result: Detection,
         label: String
     ): Quadruple<String, String, MessageQueueManager.MsgPriority, String>? {
-        // 过滤无效标签 | Filter invalid labels
-        if (shouldSuppressMessage(label) || label.isEmpty()) return null
+        if (shouldSuppressMessage(label)) return null
 
-        // 获取或创建目标上下文（用于频率控制）| Get or create object context (for rate control)
+        val currentBox = result.boundingBox
         val context = contextMemory.compute(label) { _, v ->
             v?.apply {
-                // 每次访问时降低报告频率 | Decrease report frequency on each access
-                speedFactor = max(0.5f, speedFactor * 0.9f)
-            } ?: ObjectContext()  // 初始上下文 | Initial context
+                lastPosition = currentBox
+            } ?: ObjectContext().apply {
+                lastPosition = currentBox
+            }
         }!!
 
+        val (direction, distance, trend) = calculateDirectionInfo(currentBox, context.lastPosition)
+        context.lastPosition = currentBox
+
         return when {
-            // 处理关键危险目标 | Handle critical detections
-            isCriticalDetection(result) -> Quadruple(
-                generateCriticalAlert(label),
-                "center",
-                MessageQueueManager.MsgPriority.CRITICAL,
-                label
-            )
-            // 常规目标处理 | Handle normal detections
-            shouldReport(context, generateDirectionMessage(label, calculateDirection(result.boundingBox))) -> {
-                val direction = calculateDirection(result.boundingBox)
-                context.lastReportTime = System.currentTimeMillis()
-                // 动态加快报告频率 | Dynamically increase report frequency
-                context.speedFactor = min(2.0f, context.speedFactor * 1.1f)
+            isCriticalDetection(result, distance) -> {
+                val alertLevel = if (distance == "近距离") "紧急" else "注意"
                 Quadruple(
-                    generateDirectionMessage(label, direction),
-                    "general",
-                    getDirectionPriority(direction),  // 根据方向确定优先级 | Determine priority by direction
+                    "${alertLevel}！${direction}检测到$label（$trend）",
+                    getDirectionCategory(direction),
+                    MessageQueueManager.MsgPriority.CRITICAL,
+                    label
+                )
+            }
+            shouldReport(context, direction, distance, trend) -> {
+                context.lastReportTime = System.currentTimeMillis()
+                context.lastDirection = direction
+                context.lastDistance = distance
+
+                Quadruple(
+                    generateDirectionMessage(label, direction, distance, trend),
+                    getDirectionCategory(direction),
+                    getPriorityLevel(direction, distance, trend),
                     label
                 )
             }
@@ -273,13 +234,76 @@ class DetectionProcessor {
         }
     }
 
-    /**
-     * 四元组数据类（用于封装消息要素）| Quadruple data class (encapsulates message elements)
-     * @property first 消息内容 | Message content
-     * @property second 方向分类 | Direction category
-     * @property third 消息优先级 | Message priority
-     * @property fourth 目标标签 | Object label
-     */
+    private fun getDirectionCategory(direction: String): String {
+        return when {
+            direction.contains("前") -> "front"
+            direction.contains("后") -> "back"
+            else -> "side"
+        }
+    }
+
+    // 修复后的优先级判断逻辑
+    private fun getPriorityLevel(direction: String, distance: String, trend: String): MessageQueueManager.MsgPriority {
+        return when {
+            direction == "正前方" && distance == "近距离" -> MessageQueueManager.MsgPriority.CRITICAL
+            trend.contains("快速接近") -> MessageQueueManager.MsgPriority.HIGH
+            direction in setOf("左前近", "右前近") && distance == "中距离" -> MessageQueueManager.MsgPriority.HIGH
+            trend.contains("接近") -> MessageQueueManager.MsgPriority.NORMAL
+            else -> MessageQueueManager.MsgPriority.NORMAL  // 将LOW改为NORMAL
+        }
+    }
+
+    private fun isCriticalDetection(result: Detection, distance: String): Boolean {
+        return DANGEROUS_LABELS.any { label ->
+            result.categories.any { it.label == label && it.score > 0.7 }
+        } && (result.boundingBox.width() > 0.25f || distance == "近距离")
+    }
+
+    private fun shouldReport(
+        context: ObjectContext,
+        currentDirection: String,
+        currentDistance: String,
+        trend: String
+    ): Boolean {
+        val directionChanged = context.lastDirection != currentDirection
+        val distanceChanged = context.lastDistance != currentDistance
+
+        val baseInterval = when {
+            trend.contains("快速") -> MIN_REPORT_INTERVAL_MS / 2
+            trend.contains("接近") -> MIN_REPORT_INTERVAL_MS * 2 / 3
+            else -> MIN_REPORT_INTERVAL_MS
+        }
+
+        return when {
+            directionChanged && distanceChanged -> true
+            distanceChanged -> true
+            directionChanged -> System.currentTimeMillis() - context.lastReportTime > MIN_DIRECTION_CHANGE_INTERVAL
+            else -> System.currentTimeMillis() - context.lastReportTime > (baseInterval / context.speedFactor.coerceIn(0.5f..2.0f))
+        }
+    }
+
+    private fun generateDirectionMessage(label: String, direction: String, distance: String, trend: String): String {
+        val templates = mapOf(
+            "左后远" to listOf("左后方远距离$label", "${distance}${label}在左后方"),
+            "左后方" to listOf("左后方检测到$label", "注意左后方的$label"),
+            "左前近" to listOf("左前方近距离$label！", "注意！左前方有$label$trend"),
+            "右后远" to listOf("右后方远距离$label", "${distance}${label}在右后方"),
+            "右后方" to listOf("右后方检测到$label", "注意右后方的$label"),
+            "右前近" to listOf("右前方近距离$label！", "注意！右前方有$label$trend"),
+            "正后方" to listOf("正后方$distance$label", "身后检测到$label"),
+            "正前方" to listOf("正前方${distance}${label}", "注意！正前方$label$trend"),
+            "前偏左" to listOf("左前方${distance}${label}", "$label,位于左前方向"),
+            "前偏右" to listOf("右前方${distance}${label}", "$label,位于右前方向")
+        )
+
+        return templates[direction]?.random()?.plus(if (trend != "静止") "，$trend" else "") ?: "检测到$label"
+    }
+
+    // 其余工具方法保持不变...
+    private fun shouldSuppressMessage(label: String): Boolean {
+        return label == "unknown" || label.contains("background")
+    }
+
     private data class Quadruple<out A, out B, out C, out D>(
         val first: A,
         val second: B,
@@ -287,124 +311,6 @@ class DetectionProcessor {
         val fourth: D
     )
 
-    /**
-     * 判断是否需要抑制消息 | Determine if message should be suppressed
-     * @param label 目标标签 | Object label
-     */
-    private fun shouldSuppressMessage(label: String): Boolean {
-        return label == "unknown" || label.contains("background")
-    }
-
-    /**
-     * 判断是否为关键危险目标 | Determine if critical detection
-     * @param result 检测结果 | Detection result
-     */
-    private fun isCriticalDetection(result: Detection): Boolean {
-        return DANGEROUS_LABELS.any { label ->
-            result.categories.any { it.label == label && it.score > 0.7 }
-        } && result.boundingBox.width() > 0.25f  // 目标尺寸阈值 | Size threshold
-    }
-
-    /**
-     * 判断是否应该报告 | Determine if should report
-     * @param context 目标上下文 | Object context
-     * @param newMessage 新消息内容 | New message content
-     */
-    private fun shouldReport(context: ObjectContext, newMessage: String): Boolean {
-        val baseInterval = when {
-            newMessage.contains("注意！") -> MIN_REPORT_INTERVAL_MS / 2      // 紧急消息缩短间隔 | Shorten interval for urgent messages
-            newMessage.contains("危险！") -> MIN_REPORT_INTERVAL_MS * 2 / 3  // 危险消息中等间隔 | Medium interval for dangerous messages
-            else -> MIN_REPORT_INTERVAL_MS                                  // 普通消息标准间隔 | Standard interval for normal messages
-        }
-        return System.currentTimeMillis() - context.lastReportTime > (baseInterval / context.speedFactor).toLong()
-    }
-
-    /**
-     * 计算目标方向 | Calculate object direction
-     * @param box 目标边界框 | Bounding box
-     * @return 方向描述字符串 | Direction description string
-     */
-    private fun calculateDirection(box: RectF): String {
-        val centerX = box.centerX()
-        val centerY = box.centerY()
-
-        // 列判断（横向分区）| Column determination (horizontal)
-        val col = when {
-            centerX < COLUMN_1 -> 0    // 左半区 | Left zone
-            centerX < COLUMN_2 -> 1    // 中左区 | Middle-left
-            centerX < COLUMN_3 -> 2    // 中右区 | Middle-right
-            else -> 3                  // 右半区 | Right zone
-        }
-
-        // 行判断（纵向分区）| Row determination (vertical)
-        val row = when {
-            centerY < ROW_1 -> 0       // 远距离 | Far
-            centerY < ROW_2 -> 1       // 中距离 | Medium
-            centerY < ROW_3 -> 2       // 近距离 | Close
-            else -> 3                  // 超近距离 | Very close
-        }
-
-        return directionNames[col][row]
-    }
-
-    /**
-     * 生成关键警报消息 | Generate critical alert message
-     * @param label 目标标签 | Object label
-     */
-    private fun generateCriticalAlert(label: String): String {
-        val templates = listOf(
-            "注意！正前方发现$label",   // Warning! $label ahead
-            "危险！$label,接近中",     // Danger! $label approaching
-            "紧急！$label,靠近"        // Emergency! $label nearby
-        )
-        return templates.random()  // 随机选择模板增加多样性 | Random selection for variety
-    }
-
-    /**
-     * 根据方向确定消息优先级 | Determine message priority by direction
-     * @param direction 方向描述 | Direction description
-     */
-    private fun getDirectionPriority(direction: String): MessageQueueManager.MsgPriority {
-        return when {
-            direction.contains("正前") -> MessageQueueManager.MsgPriority.CRITICAL  // 正前方最高优先级 | Direct front: highest
-            direction.contains("正后") -> MessageQueueManager.MsgPriority.HIGH      // 正后方高优先级 | Direct back: high
-            direction.contains("近") -> MessageQueueManager.MsgPriority.HIGH        // 近距离高优先级 | Close distance: high
-            else -> MessageQueueManager.MsgPriority.NORMAL                          // 其他普通优先级 | Others: normal
-        }
-    }
-
-    /**
-     * 生成方向提示消息 | Generate directional alert message
-     * @param label 目标标签 | Object label
-     * @param direction 方向描述 | Direction description
-     */
-    private fun generateDirectionMessage(label: String, direction: String): String {
-        val templates = mapOf(
-            "左后远" to listOf("左后方远距离检测到$label", "$label,在左后方较远位置"),  // Far back-left detections
-            "左后方" to listOf("左后方有$label", "注意左后方的$label"),               // Back-left presence
-            "左前近" to listOf("左前方近距离发现$label", "注意！左前方有$label,接近"),   // Close front-left
-            "左前远" to listOf("左前方远距离存在$label", "$label,在左前方较远位置"),    // Far front-left
-
-            "后偏左" to listOf("左后方检测到$label", "$label,位于您的左后方"),        // Back-left detection
-            "正后方" to listOf("正后方发现$label", "请注意身后有$label"),              // Direct back detection
-            "正前方" to listOf("正前方有$label", "检测到正前方存在$label"),            // Direct front detection
-            "前偏左" to listOf("左前方检测到$label", "$label,位于您的前方左侧"),       // Front-left detection
-
-            "后偏右" to listOf("右后方检测到$label", "$label,位于您的右后方"),        // Back-right detection
-            "前偏右" to listOf("右前方检测到$label", "$label,位于您的前方右侧"),       // Front-right detection
-
-            "右后远" to listOf("右后方远距离检测到$label", "$label,在右后方较远位置"),  // Far back-right
-            "右后方" to listOf("右后方有$label", "注意右后方的$label"),               // Back-right presence
-            "右前近" to listOf("右前方近距离发现$label", "注意！右前方有$label,接近"),   // Close front-right
-            "右前远" to listOf("右前方远距离存在$label", "$label,在右前方较远位置")    // Far front-right
-        )
-        return templates[direction]?.random() ?: "检测到$label"  // 默认消息 | Default message
-    }
-
-    /**
-     * 标签本地化映射（英->中）| Label localization map (EN->CN)
-     * @param original 原始标签 | Original label
-     */
     fun getChineseLabel(original: String): String {
         return mapOf(
             "person" to "行人",
@@ -495,11 +401,8 @@ class DetectionProcessor {
         )[original.lowercase()] ?: original  // 未知标签返回原文 | Return original for unknown labels
     }
 
-    /**
-     * 关闭时清理资源 | Cleanup resources on shutdown
-     */
     fun shutdown() {
-        batchProcessor.shutdown()   // 关闭线程池 | Shutdown thread pool
-        contextMemory.clear()       // 清空上下文记忆 | Clear context memory
+        batchProcessor.shutdown()
+        contextMemory.clear()
     }
 }
