@@ -4,6 +4,14 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <meta-data
         android:name="ipdata_api_key"
@@ -16,22 +24,19 @@
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
     </queries>
-    <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" />
     <uses-feature android:name="android.hardware.camera.autofocus"
         android:required="false" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.WRITE_SETTINGS"
-        tools:ignore="ProtectedPermissions" />
     <uses-feature
         android:name="android.hardware.vibrator"
         android:required="false" />
     <uses-feature android:name="android.hardware.camera.flash"
         android:required="false" />
     <uses-feature android:name="android.hardware.sensor.light" />
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
 
-
-    <uses-permission android:name="android.permission.VIBRATE" />
     <application
         android:theme="@style/AppTheme"
         android:allowBackup="true"
@@ -42,7 +47,6 @@
         android:roundIcon="@drawable/eye_care__3_"
         android:supportsRtl="true"
         tools:targetApi="31">
-        <!-- 添加开屏页为启动页 -->
         <activity
             android:name=".ui.splash.SplashActivity"
             android:exported="true"
@@ -70,6 +74,9 @@
             android:label="@string/settings"
             android:parentActivityName=".ui.main.MainActivity">
         </activity>
+        <service
+            android:name=".feature.fall.TtsService"
+            android:enabled="true"
+            android:exported="false" />
     </application>
-
 </manifest>

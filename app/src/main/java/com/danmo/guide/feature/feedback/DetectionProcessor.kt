@@ -51,7 +51,10 @@ class DetectionProcessor {
         private const val DEFAULT_CONFIDENCE_THRESHOLD = 0.4f
 
         // 危险目标标签集合 | Dangerous object labels
-        private val DANGEROUS_LABELS = setOf("car", "person", "bus", "truck")
+        private val DANGEROUS_LABELS = setOf("car", "person", "bus", "truck", "motorcycle", "bicycle","traffic light")
+
+        // 最小有效尺寸（屏幕宽高的20%）| Minimum valid object size
+        private const val MIN_OBJECT_SIZE = 0.2f
 
         // 屏幕区域划分常量（横向）| Screen division constants (horizontal)
         private const val COLUMN_1 = 0.25f
@@ -68,6 +71,7 @@ class DetectionProcessor {
         @Volatile
         private var instance: DetectionProcessor? = null
         private var _confidenceThreshold: Float = DEFAULT_CONFIDENCE_THRESHOLD  // 当前置信度阈值 | Current confidence threshold
+
 
         /**
          * 置信度阈值访问器 | Confidence threshold accessors
@@ -206,13 +210,21 @@ class DetectionProcessor {
      */
     private fun processSingleDetection(result: Detection) {
         result.categories
-            .takeIf { it.isNotEmpty() }  // 过滤空分类 | Filter empty categories
-            ?.maxByOrNull { it.score }   // 取最高分分类 | Get highest score category
-            ?.takeIf { it.score >= confidenceThreshold }  // 置信度检查 | Confidence check
+            .takeIf { it.isNotEmpty() }
+            ?.maxByOrNull { it.score }
+            ?.takeIf { it.score >= confidenceThreshold }
             ?.let { category ->
-                val label = getChineseLabel(category.label)  // 获取本地化标签 | Get localized label
+                // 过滤非危险目标 | Filter non-dangerous objects
+                val originalLabel = category.label.lowercase()
+                if (originalLabel !in DANGEROUS_LABELS) return@let
+
+                // 过滤小尺寸目标 | Filter small objects
+                val box = result.boundingBox
+                if (box.width() < MIN_OBJECT_SIZE || box.height() < MIN_OBJECT_SIZE) return@let
+
+                // 生成提示消息 | Generate alert
+                val label = getChineseLabel(originalLabel)
                 buildDetectionMessage(result, label)?.let { (message, dir, pri, lbl) ->
-                    // 将消息加入队列 | Enqueue message
                     messageQueueManager.enqueueMessage(
                         message = message,
                         direction = dir,
@@ -237,35 +249,32 @@ class DetectionProcessor {
         result: Detection,
         label: String
     ): Quadruple<String, String, MessageQueueManager.MsgPriority, String>? {
+        // 计算方向并过滤远距离 | Calculate direction and filter far objects
+        val direction = calculateDirection(result.boundingBox)
+        if (direction.contains("远")) return null  // 移出apply作用域直接判断
+
         // 过滤无效标签 | Filter invalid labels
         if (shouldSuppressMessage(label) || label.isEmpty()) return null
 
-        // 获取或创建目标上下文（用于频率控制）| Get or create object context (for rate control)
+        // 获取或创建目标上下文（用于频率控制）| Get or create object context
         val context = contextMemory.compute(label) { _, v ->
-            v?.apply {
-                // 每次访问时降低报告频率 | Decrease report frequency on each access
-                speedFactor = max(0.5f, speedFactor * 0.9f)
-            } ?: ObjectContext()  // 初始上下文 | Initial context
+            v?.apply { speedFactor = max(0.5f, speedFactor * 0.9f) } ?: ObjectContext()
         }!!
 
         return when {
-            // 处理关键危险目标 | Handle critical detections
             isCriticalDetection(result) -> Quadruple(
                 generateCriticalAlert(label),
                 "center",
                 MessageQueueManager.MsgPriority.CRITICAL,
                 label
             )
-            // 常规目标处理 | Handle normal detections
-            shouldReport(context, generateDirectionMessage(label, calculateDirection(result.boundingBox))) -> {
-                val direction = calculateDirection(result.boundingBox)
+            shouldReport(context, generateDirectionMessage(label, direction)) -> { // 复用已计算的方向
                 context.lastReportTime = System.currentTimeMillis()
-                // 动态加快报告频率 | Dynamically increase report frequency
                 context.speedFactor = min(2.0f, context.speedFactor * 1.1f)
                 Quadruple(
-                    generateDirectionMessage(label, direction),
+                    generateDirectionMessage(label, direction), // 使用已有方向
                     "general",
-                    getDirectionPriority(direction),  // 根据方向确定优先级 | Determine priority by direction
+                    getDirectionPriority(direction), // 使用已有方向
                     label
                 )
             }
@@ -405,94 +414,17 @@ class DetectionProcessor {
      * 标签本地化映射（英->中）| Label localization map (EN->CN)
      * @param original 原始标签 | Original label
      */
+
     fun getChineseLabel(original: String): String {
-        return mapOf(
-            "person" to "行人",
-            "bicycle" to "自行车",
-            "car" to "汽车",
-            "motorcycle" to "摩托车",
-            "airplane" to "飞机",
-            "bus" to "公交车",
-            "train" to "火车",
-            "truck" to "卡车",
-            "boat" to "船只",
-            "traffic light" to "交通灯",
-            "fire hydrant" to "消防栓",
-            "stop sign" to "停车标志",
-            "parking meter" to "停车计时器",
-            "bench" to "长椅",
-            "bird" to "鸟类",
-            "cat" to "猫",
-            "dog" to "狗",
-            "horse" to "马",
-            "sheep" to "羊",
-            "cow" to "牛",
-            "elephant" to "大象",
-            "bear" to "熊",
-            "zebra" to "斑马",
-            "giraffe" to "长颈鹿",
-            "backpack" to "背包",
-            "umbrella" to "雨伞",
-            "handbag" to "手提包",
-            "tie" to "领带",
-            "suitcase" to "行李箱",
-            "frisbee" to "飞盘",
-            "skis" to "滑雪板",
-            "snowboard" to "滑雪单板",
-            "sports ball" to "运动球类",
-            "kite" to "风筝",
-            "baseball bat" to "棒球棒",
-            "baseball glove" to "棒球手套",
-            "skateboard" to "滑板",
-            "surfboard" to "冲浪板",
-            "tennis racket" to "网球拍",
-            "bottle" to "瓶子",
-            "wine glass" to "酒杯",
-            "cup" to "杯子",
-            "fork" to "叉子",
-            "knife" to "刀具",
-            "spoon" to "勺子",
-            "bowl" to "碗",
-            "banana" to "香蕉",
-            "apple" to "苹果",
-            "sandwich" to "三明治",
-            "orange" to "橙子",
-            "broccoli" to "西兰花",
-            "carrot" to "胡萝卜",
-            "hot dog" to "热狗",
-            "pizza" to "披萨",
-            "donut" to "甜甜圈",
-            "cake" to "蛋糕",
-            "chair" to "椅子",
-            "couch" to "沙发",
-            "potted plant" to "盆栽",
-            "bed" to "床",
-            "dining table" to "餐桌",
-            "toilet" to "马桶",
-            "tv" to "电视",
-            "laptop" to "笔记本",
-            "mouse" to "鼠标",
-            "remote" to "遥控器",
-            "keyboard" to "键盘",
-            "cell phone" to "手机",
-            "microwave" to "微波炉",
-            "oven" to "烤箱",
-            "toaster" to "烤面包机",
-            "sink" to "水槽",
-            "refrigerator" to "冰箱",
-            "book" to "书籍",
-            "clock" to "时钟",
-            "vase" to "花瓶",
-            "scissors" to "剪刀",
-            "teddy bear" to "玩偶",
-            "hair drier" to "吹风机",
-            "toothbrush" to "牙刷",
-            "door" to "门",
-            "window" to "窗户",
-            "stairs" to "楼梯",
-            "curtain" to "窗帘",
-            "mirror" to "镜子"
-        )[original.lowercase()] ?: original  // 未知标签返回原文 | Return original for unknown labels
+        return when (original.lowercase()) {
+            "person" -> "行人"
+            "car" -> "汽车"
+            "bus" -> "公交车"
+            "truck" -> "卡车"
+            "motorcycle" -> "摩托车"
+            "bicycle" -> "自行车"
+            else -> "unknown"  // 非关键目标返回unknown | Return unknown for others
+        }
     }
 
     /**
