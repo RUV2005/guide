@@ -19,4 +19,15 @@
     <string name="weather">天气播报</string>
     <string name="tts_not_ready">语音引擎未就绪</string>
     <string name="weather_failed">获取天气信息失败</string>
+    <string name="skip">跳过</string>
+    <string name="next">下一步</string>
+    <string name="finish">开始使用</string>
+    <string name="step1_title">安全设置</string>
+    <string name="step1_desc">请启用跌倒检测功能以保障您的安全</string>
+    <string name="enable_fall_detection">启用跌倒检测</string>
+    <string name="step2_title">紧急联系人</string>
+    <string name="step2_desc">请设置紧急情况下联系的电话号码</string>
+    <string name="emergency_contact_hint">输入联系电话</string>
+    <string name="step3_title">天气服务</string>
+    <string name="step3_desc">选择天气更新频率</string>
 </resources>
