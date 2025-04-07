@@ -21,13 +21,16 @@ import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
+import com.amap.api.location.AMapLocation
+import com.danmo.guide.feature.location.LocationManager
 import kotlin.math.abs
 import kotlin.math.sqrt
 
 class FallDetector(
+    var locationManager: LocationManager,
     private val context: Context,
     private val sosNumber: String = "123456789000000"
-) : SensorEventListener {
+) : SensorEventListener, LocationManager.LocationCallback { // 添加接口实现
 
     interface EmergencyCallback {
         fun onEmergencyDetected()
@@ -78,6 +81,10 @@ class FallDetector(
 
     // 传感器监听
     fun startListening() {
+        // 在 FallDetector 的 startListening 方法中添加
+        if (accelerometer == null) {
+            Toast.makeText(context, "该设备不支持加速度传感器", Toast.LENGTH_SHORT).show()
+        }
         accelerometer?.let {
             sensorManager.registerListener(
                 this,
@@ -116,7 +123,6 @@ class FallDetector(
 
     private var vibrator: Vibrator? = null
     private var vibrationHandler = Handler(Looper.getMainLooper())
-    private val vibrationPattern = mutableListOf<Long>()
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun startEmergencyVibration() {
@@ -186,11 +192,25 @@ class FallDetector(
     fun triggerFallDetection() {
         if (!isFallDetected) {
             isFallDetected = true
-            startEmergencyVibration()  // 先启动震动
-            speak("监测到手机跌落，您疑似跌倒，是否需要帮助？十秒内无操作将开启紧急呼叫") // 立即开始播报
+            startEmergencyVibration()
+            speak("监测到手机跌落，您疑似跌倒，是否需要帮助？十秒内无操作将开启紧急呼叫")
             showToast("监测到手机跌落，您疑似跌倒，是否需要帮助？十秒内无操作将开启紧急呼叫")
             showFallConfirmationDialog()
+
+            // 修正这里：传递 FallDetector 作为回调
+            locationManager.startLocation(this) // 现在 this 实现了 LocationCallback
         }
+    }
+
+    // 新增位置回调方法实现
+    override fun onLocationSuccess(location: AMapLocation?) {
+        // 处理定位成功逻辑
+        Log.d("FallDetector", "定位成功：${location?.toStr()}")
+    }
+
+    override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
+        // 处理定位失败逻辑
+        Log.e("FallDetector", "定位失败：$errorCode - $errorInfo")
     }
 
     fun isFallDetected() = isFallDetected
@@ -221,19 +241,6 @@ class FallDetector(
         fallStartTime = 0L
         isFallDetected = false
         fallConfirmationCount = 0 // 重置确认计数
-    }
-
-    private fun provideHapticFeedback() {
-        (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.let {
-            if (it.hasVibrator()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    it.vibrate(VibrationEffect.createOneShot(500, 255))
-                } else {
-                    @Suppress("DEPRECATION")
-                    it.vibrate(500)
-                }
-            }
-        }
     }
 
     private fun checkCallPermission(): Boolean {
@@ -289,15 +296,13 @@ class FallDetector(
         dialog.show()
 
         // 添加倒计时逻辑
-        val handler = android.os.Handler()
-        val runnable = object : Runnable {
-            override fun run() {
-                if (dialog.isShowing) {
-                    // 如果对话框还在显示，自动触发紧急呼叫
-                    triggerEmergencyCall()
-                    speak("用户未确认安全,自动紧急呼叫中") // 调用 TTS 提示
-                    dialog.dismiss()
-                }
+        val handler = Handler()
+        val runnable = Runnable {
+            if (dialog.isShowing) {
+                // 如果对话框还在显示，自动触发紧急呼叫
+                triggerEmergencyCall()
+                speak("用户未确认安全,自动紧急呼叫中") // 调用 TTS 提示
+                dialog.dismiss()
             }
         }
 

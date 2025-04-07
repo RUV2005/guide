@@ -1,6 +1,5 @@
 package com.danmo.guide.ui.main
 
-import com.danmo.guide.feature.fall.FallDetector
 import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
@@ -19,16 +18,21 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.camera.core.ImageAnalysis
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.amap.api.location.AMapLocation
+import com.amap.api.location.AMapLocationClient
 import com.danmo.guide.R
 import com.danmo.guide.databinding.ActivityMainBinding
 import com.danmo.guide.feature.camera.CameraManager
 import com.danmo.guide.feature.camera.ImageProxyUtils
 import com.danmo.guide.feature.detection.ObjectDetectorHelper
+import com.danmo.guide.feature.fall.FallDetector
 import com.danmo.guide.feature.fall.TtsService
 import com.danmo.guide.feature.feedback.DetectionProcessor
 import com.danmo.guide.feature.feedback.FeedbackManager
+import com.danmo.guide.feature.location.LocationManager
 import com.danmo.guide.feature.weather.WeatherManager
 import com.danmo.guide.ui.components.OverlayView
 import com.danmo.guide.ui.settings.SettingsActivity
@@ -40,9 +44,11 @@ import java.util.concurrent.Executors
 import kotlin.math.abs
 
 class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
-    SensorEventListener {
+    SensorEventListener , LocationManager.LocationCallback
+    {
 
     // 基础功能模块
+    private lateinit var locationManager: LocationManager
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var objectDetectorHelper: ObjectDetectorHelper
@@ -93,6 +99,8 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        AMapLocationClient.updatePrivacyShow(this, true, true)
+        AMapLocationClient.updatePrivacyAgree(this, true)
 
         // 初始化基础模块
         initBasicComponents()
@@ -102,34 +110,149 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
         // 绑定TTS服务
         bindTtsService()
-    }
 
-    private fun initBasicComponents() {
-        cameraExecutor = Executors.newSingleThreadExecutor()
-        overlayView = binding.overlayView
-        objectDetectorHelper = ObjectDetectorHelper(this)
-        feedbackManager = FeedbackManager(this)
-        cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
-        weatherManager = WeatherManager(this)
+        // 初始化定位管理器
+        locationManager = LocationManager.instance!!
+        locationManager.initialize(this)
 
-        checkCameraPermission()
-        getWeatherAndAnnounce()
-
-        binding.fabSettings.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+        // 设置定位测试按钮点击事件
+        binding.fabLocation.setOnClickListener {
+            startLocationDetection()
         }
+
     }
 
-    private fun initFallDetection() {
-        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+        // 在 startLocationDetection 方法中添加日志
+        private fun startLocationDetection() {
+            Log.d("LocationFlow", "尝试启动定位...")
+            if (checkLocationPermission()) {
+                Log.d("LocationFlow", "权限已授予，开始定位")
+                locationManager.startLocation(this)
+            } else {
+                Log.w("LocationFlow", "缺少定位权限，正在请求权限")
+                requestLocationPermission()
+            }
+        }
 
-        // 初始化 com.danmo.guide.feature.fall.FallDetector
-        fallDetector = FallDetector(context = this)
-        fallDetector.init(this) // 调用 init 方法
-        fallDetector.setEmergencyCallback(this) // 设置紧急回调
 
-        checkFallPermissions()
-    }
+        // 修改后的 onLocationSuccess 方法
+        // 修改后的 onLocationSuccess 方法
+        override fun onLocationSuccess(location: AMapLocation?) {
+            runOnUiThread {
+                location?.let {
+                    // 构建详细定位信息
+                    val logInfo = """
+                AMapLocation 定位成功: 
+                经度 = ${it.longitude}
+                纬度 = ${it.latitude}
+                地址 = ${it.address}
+                城市 = ${it.city}
+            """.trimIndent()
+
+                    // 新增TTS播报
+                    val ttsMessage = """
+                当前位置：${it.address}
+                经度：${it.longitude}
+                纬度：${it.latitude}
+            """.trimIndent()
+
+                    ttsService?.speak(ttsMessage) ?: run {
+                        Log.w("TTS", "TTS服务未初始化")
+                        showToast("语音服务不可用")
+                    }
+                }
+            }
+        }
+
+        // 修改后的 onLocationFailure 方法
+        override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
+            runOnUiThread {
+                // 构建错误日志
+                val errorLog = "定位失败 (错误码: $errorCode): ${errorInfo ?: "未知错误"}"
+
+                // 输出到 Logcat
+                Log.e("LocationError", errorLog)
+
+                // 原有 Toast 提示
+                showToast(errorLog)
+            }
+        }
+
+        // 权限检查方法
+        private fun checkLocationPermission(): Boolean {
+            return ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+
+
+        private fun requestLocationPermission() {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                LOCATION_PERMISSION_REQUEST_CODE
+            )
+        }
+
+        // 处理权限请求结果
+        override fun onRequestPermissionsResult(
+            requestCode: Int,
+            permissions: Array<String>,
+            grantResults: IntArray
+        ) {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+            when (requestCode) {
+                LOCATION_PERMISSION_REQUEST_CODE -> {
+                    locationManager.handlePermissionsResult(requestCode, grantResults)
+                }
+            }
+        }
+
+        companion object {
+            private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
+        }
+
+
+        private fun initBasicComponents() {
+            cameraExecutor = Executors.newSingleThreadExecutor()
+            overlayView = binding.overlayView
+            objectDetectorHelper = ObjectDetectorHelper(this)
+            feedbackManager = FeedbackManager(this)
+            cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
+            weatherManager = WeatherManager(this)
+
+            checkCameraPermission()
+            getWeatherAndAnnounce()
+
+            binding.fabSettings.setOnClickListener {
+                startActivity(Intent(this, SettingsActivity::class.java))
+            }
+
+            // 初始化定位管理器
+            locationManager = LocationManager.instance!!
+            locationManager.initialize(this)
+            locationManager.callback = this
+        }
+
+        private fun initFallDetection() {
+            sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+
+            // 初始化 FallDetector
+            fallDetector = FallDetector(
+                context = this,
+                locationManager = locationManager, // 传递 locationManager
+                sosNumber = "123456789000000"
+            )
+            fallDetector.init(this) // 调用 init 方法
+            fallDetector.setEmergencyCallback(this) // 设置紧急回调
+            fallDetector.locationManager = locationManager // 确保 locationManager 被正确赋值
+
+            checkFallPermissions()
+        }
 
     private fun bindTtsService() {
         Intent(this, TtsService::class.java).also { intent ->
@@ -146,18 +269,23 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
     override fun onPause() {
         super.onPause()
+        // 停止定位服务
+        locationManager.stopLocation()
         // 停止 com.danmo.guide.feature.fall.FallDetector 的传感器监听
         fallDetector.stopListening()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        if (isTtsBound) {
-            unbindService(ttsConnection)
-            isTtsBound = false
+        override fun onDestroy() {
+            super.onDestroy()
+            // 销毁定位资源
+            locationManager.destroy()
+
+            if (isTtsBound) {
+                unbindService(ttsConnection)
+                isTtsBound = false
+            }
+            cameraExecutor.shutdown()
         }
-        cameraExecutor.shutdown()
-    }
 
     // region 跌倒检测回调
     override fun onEmergencyDetected() {

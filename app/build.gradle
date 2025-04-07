@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id "com.github.ben-manes.versions" version "0.51.0"
-     id 'jacoco'
+    id 'jacoco'
 }
 jacoco {
     toolVersion = "0.8.11"
@@ -33,15 +33,15 @@ android {
         versionName "1.0"
 
         ndk {
-            abiFilters 'armeabi','armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+            abiFilters 'armeabi', 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
         }
-        
+
         lintOptions {
             htmlReport true
             xmlReport true
             htmlOutput file("$buildDir/reports/lint-results.html")
         }
-        
+
         multiDexEnabled true // 启用 multidex
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -141,11 +141,15 @@ dependencies {
     }
     implementation(libs.material)
     // OkHttp 网络库
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation libs.okhttp
 
     // Gson 解析库
-    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation libs.gson
     // 其他
+
+    implementation files('libs/AMapLocation_6.4.9_20241226.aar')
+
+
     implementation(libs.oboe)
     implementation libs.media3.exoplayer
     implementation libs.androidx.constraintlayout

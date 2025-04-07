@@ -6,11 +6,14 @@
     <string name="default_emergency_number">120</string>
     <string name="fall_detected_warning">检测到跌倒！正在启动紧急响应…</string>
     <string name="fall_alert_voice">检测到跌倒，已启动紧急呼叫</string>
-    <string name="permission_required">需要电话权限以启动紧急呼叫</string>
     <string name="low_light_warning">低光环境，已开启辅助照明</string>
     <string name="normal_light_status">环境光线正常</string>
     <string name="false_alarm_canceled">误报已取消</string>
     <string name="normal_status">系统运行正常</string>
     <string name="no_objects_detected">未检测到有效障碍物</string>
     <string name="location_failed">无法获取位置信息</string>
+    <string name="manual_location">手动定位</string>
+    <string name="critical_permission_rationale">需要以下核心权限以使用完整功能：\n- 相机用于物体识别\n- 定位用于位置服务\n- 电话用于紧急呼叫</string>
+    <string name="permission_required">权限要求</string>
+    <string name="cancel">取消</string>
 </resources>

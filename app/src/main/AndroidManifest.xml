@@ -1,29 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ====================== -->
+    <!--      权限声明区域       -->
+    <!-- ====================== -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
-    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+    <!-- 高采样率传感器权限（需注意功耗问题） -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS"
+        tools:ignore="HighSamplingRate" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
-    <meta-data
-        android:name="ipdata_api_key"
-        android:value="2e5588b836580a8dddab84752f4be981f293033ff17909963e4993f2" />
-    <meta-data
-        android:name="openweather_api_key"
-        android:value="e50c756f96b046b54d6fdf60a941413a" />
+    <!-- 网络定位相关权限 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- 外部存储写入权限（仅限Android 12及以下） -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"
+        tools:ignore="ScopedStorage" />
+    <!-- 高级定位指令权限 -->
+    <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
+    <!-- 后台定位权限 -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+
+    <!-- ====================== -->
+    <!--     功能特性声明区域     -->
+    <!-- ====================== -->
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
     </queries>
+
+    <!-- 硬件特性声明 -->
     <uses-feature android:name="android.hardware.camera" />
     <uses-feature android:name="android.hardware.camera.autofocus"
         android:required="false" />
@@ -37,6 +55,9 @@
         android:name="android.hardware.telephony"
         android:required="false" />
 
+    <!-- ====================== -->
+    <!--     应用配置区域        -->
+    <!-- ====================== -->
     <application
         android:theme="@style/AppTheme"
         android:allowBackup="true"
@@ -47,6 +68,33 @@
         android:roundIcon="@drawable/eye_care__3_"
         android:supportsRtl="true"
         tools:targetApi="31">
+
+        <!-- 高德地图SDK配置 -->
+        <!--
+            AMap API Key 配置说明：
+            1. 用于高德地图定位、地图显示等核心功能
+            2. 该值需要在高德开放平台申请（https://lbs.amap.com）
+            3. 注意替换为开发者自己的应用Key
+            4. 泄露此Key可能导致服务被滥用
+        -->
+        <meta-data
+            android:name="com.amap.api.v2.apikey"
+            android:value="10e8754f752422eb0c2d5aae0c570ba3" />
+
+        <!-- 第三方API密钥 -->
+        <!-- IP定位API密钥 -->
+        <meta-data
+            android:name="ipdata_api_key"
+            android:value="2e5588b836580a8dddab84752f4be981f293033ff17909963e4993f2" />
+        <!-- IP查询天气密钥 -->
+        <meta-data
+            android:name="openweather_api_key"
+            android:value="e50c756f96b046b54d6fdf60a941413a" />
+
+        <!-- ====================== -->
+        <!--     组件声明区域        -->
+        <!-- ====================== -->
+        <!-- 启动页 -->
         <activity
             android:name=".ui.splash.SplashActivity"
             android:exported="true"
@@ -58,10 +106,25 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 高德定位服务组件 -->
+        <!--
+            APSService 说明：
+            1. 高德定位SDK的核心后台服务
+            2. 运行在独立进程（:location）以提升稳定性
+            3. 负责处理GPS、网络定位等底层操作
+            4. 必须与AMap API Key配合使用
+        -->
+        <service
+            android:name="com.amap.api.location.APSService"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":location"/>
+
+        <!-- 其他应用组件 -->
         <activity
             android:name=".ui.main.MainActivity"
             android:exported="false"
-            android:label="@string/app_name"
             android:theme="@style/Theme.Guide"
             android:screenOrientation="landscape"
             tools:ignore="DiscouragedApi">
@@ -74,9 +137,12 @@
             android:label="@string/settings"
             android:parentActivityName=".ui.main.MainActivity">
         </activity>
+
+        <!-- 文本转语音服务 -->
         <service
             android:name=".feature.fall.TtsService"
             android:enabled="true"
             android:exported="false" />
+
     </application>
 </manifest>
