@@ -167,12 +167,6 @@ class WeatherManager(private val context: Context) {
                     "雾" in weatherDesc -> append("，外面有雾，出行要注意安全哦")
                 }
 
-                // 风力提醒
-                when {
-                    windSpeed > 7 -> append("，外面风好大哦，出去要注意安全呀")
-                    windSpeed in 5..7 -> append("，风有点大，要注意一下哦")
-                    windSpeed in 3..4 -> append("，有微微的风，很舒服呢")
-                }
 
                 // 智能生活建议
                 when {
@@ -180,7 +174,6 @@ class WeatherManager(private val context: Context) {
                     temp < 5 -> append("，天气冷，秋裤一定要穿好哦")
                     temp > 30 && "晴" in weatherDesc -> append("，天气热，记得涂防晒霜哦")
                     windSpeed > 5 -> append("，风大，出门戴好口罩哦")
-                    else -> append("，今天天气不错，出去走走吧")
                 }
 
             } catch (e: Exception) {

@@ -53,29 +53,14 @@
         android:src="@drawable/gps"
         app:backgroundTint="@color/white"
         app:elevation="8dp" />
-    <LinearLayout
-        android:id="@+id/permission_buttons"
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_weather"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
-
-        <Button
-            android:id="@+id/btnRequestCritical"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="请求核心权限"/>
-
-        <Button
-            android:id="@+id/btnRequestOptional"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="请求可选权限"/>
-
-        <Button
-            android:id="@+id/btnOpenSettings"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="打开设置"/>
-
-    </LinearLayout>
+        android:layout_gravity="top|start"
+        android:layout_margin="16dp"
+        android:contentDescription="@string/weather"
+        android:src="@drawable/weather"
+        app:backgroundTint="@color/white"
+        app:elevation="8dp" />
 </FrameLayout>

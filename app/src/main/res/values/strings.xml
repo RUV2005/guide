@@ -16,4 +16,7 @@
     <string name="critical_permission_rationale">需要以下核心权限以使用完整功能：\n- 相机用于物体识别\n- 定位用于位置服务\n- 电话用于紧急呼叫</string>
     <string name="permission_required">权限要求</string>
     <string name="cancel">取消</string>
+    <string name="weather">天气播报</string>
+    <string name="tts_not_ready">语音引擎未就绪</string>
+    <string name="weather_failed">获取天气信息失败</string>
 </resources>
