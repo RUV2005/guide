@@ -82,10 +82,6 @@
             android:value="10e8754f752422eb0c2d5aae0c570ba3" />
 
         <!-- 第三方API密钥 -->
-        <!-- IP定位API密钥 -->
-        <meta-data
-            android:name="ipdata_api_key"
-            android:value="2e5588b836580a8dddab84752f4be981f293033ff17909963e4993f2" />
         <!-- IP查询天气密钥 -->
         <meta-data
             android:name="openweather_api_key"

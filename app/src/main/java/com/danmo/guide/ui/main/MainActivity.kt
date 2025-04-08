@@ -44,8 +44,7 @@ import java.util.concurrent.Executors
 import kotlin.math.abs
 
 class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
-    SensorEventListener , LocationManager.LocationCallback
-    {
+    SensorEventListener, LocationManager.LocationCallback, FallDetector.WeatherCallback {
 
     // 基础功能模块
     private lateinit var locationManager: LocationManager
@@ -85,7 +84,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             val binder = service as TtsService.TtsBinder
             ttsService = binder.getService()
             Log.d("MainActivity", "TTS服务已连接")
-            // 将 TTS 服务传递给 com.danmo.guide.feature.fall.FallDetector
+            // 将 TTS 服务传递给 FallDetector
             fallDetector.ttsService = ttsService
         }
 
@@ -115,47 +114,48 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         locationManager = LocationManager.instance!!
         locationManager.initialize(this)
 
-        // 设置定位测试按钮点击事件
+
+// 定位按钮点击事件
         binding.fabLocation.setOnClickListener {
-            startLocationDetection()
+            startLocationDetection(isWeatherButton = false)
         }
 
-    }
-
-        // 在 startLocationDetection 方法中添加日志
-        private fun startLocationDetection() {
-            Log.d("LocationFlow", "尝试启动定位...")
+// 天气按钮点击事件
+        binding.fabWeather.setOnClickListener {
             if (checkLocationPermission()) {
-                Log.d("LocationFlow", "权限已授予，开始定位")
-                locationManager.startLocation(this)
+                showToast("正在获取天气...")
+                startLocationDetection(isWeatherButton = true)
             } else {
-                Log.w("LocationFlow", "缺少定位权限，正在请求权限")
                 requestLocationPermission()
             }
         }
+    }
 
+    // 在 startLocationDetection 方法中添加日志
+    private fun startLocationDetection(isWeatherButton: Boolean = false) {
+        Log.d("LocationFlow", "尝试启动定位...")
+        if (checkLocationPermission()) {
+            Log.d("LocationFlow", "权限已授予，开始定位")
+            locationManager.startLocation(this, isWeatherButton)
+        } else {
+            Log.w("LocationFlow", "缺少定位权限，正在请求权限")
+            requestLocationPermission()
+        }
+    }
 
-        // 修改后的 onLocationSuccess 方法
-        // 修改后的 onLocationSuccess 方法
-        override fun onLocationSuccess(location: AMapLocation?) {
-            runOnUiThread {
-                location?.let {
-                    // 构建详细定位信息
-                    val logInfo = """
-                AMapLocation 定位成功: 
-                经度 = ${it.longitude}
-                纬度 = ${it.latitude}
-                地址 = ${it.address}
-                城市 = ${it.city}
-            """.trimIndent()
-
-                    // 新增TTS播报
+    override fun onLocationSuccess(location: AMapLocation?, isWeatherButton: Boolean) {
+        runOnUiThread {
+            location?.let {
+                if (isWeatherButton) {
+                    // 如果是天气按钮触发的定位，播报天气信息
+                    fallDetector.getWeatherAndAnnounce(it.latitude, it.longitude, it.city)
+                } else {
+                    // 如果是定位按钮触发的定位，播报位置信息
                     val ttsMessage = """
-                当前位置：${it.address}
-                经度：${it.longitude}
-                纬度：${it.latitude}
-            """.trimIndent()
-
+                    当前位置：${it.address}
+                    经度：${it.longitude}
+                    纬度：${it.latitude}
+                """.trimIndent()
                     ttsService?.speak(ttsMessage) ?: run {
                         Log.w("TTS", "TTS服务未初始化")
                         showToast("语音服务不可用")
@@ -163,96 +163,99 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                 }
             }
         }
+    }
 
-        // 修改后的 onLocationFailure 方法
-        override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
-            runOnUiThread {
-                // 构建错误日志
-                val errorLog = "定位失败 (错误码: $errorCode): ${errorInfo ?: "未知错误"}"
+    // 修改后的 onLocationFailure 方法
+    override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
+        runOnUiThread {
+            // 构建错误日志
+            val errorLog = "定位失败 (错误码: $errorCode): ${errorInfo ?: "未知错误"}"
 
-                // 输出到 Logcat
-                Log.e("LocationError", errorLog)
+            // 输出到 Logcat
+            Log.e("LocationError", errorLog)
 
-                // 原有 Toast 提示
-                showToast(errorLog)
-            }
+            // 原有 Toast 提示
+            showToast(errorLog)
         }
+    }
 
-        // 权限检查方法
-        private fun checkLocationPermission(): Boolean {
-            return ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-        }
+    // 权限检查方法
+    private fun checkLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
 
+    private fun requestLocationPermission() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ),
+            LOCATION_PERMISSION_REQUEST_CODE
+        )
+    }
 
-        private fun requestLocationPermission() {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                ),
-                LOCATION_PERMISSION_REQUEST_CODE
-            )
-        }
-
-        // 处理权限请求结果
-        override fun onRequestPermissionsResult(
-            requestCode: Int,
-            permissions: Array<String>,
-            grantResults: IntArray
-        ) {
-            super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-            when (requestCode) {
-                LOCATION_PERMISSION_REQUEST_CODE -> {
-                    locationManager.handlePermissionsResult(requestCode, grantResults)
+    // 处理权限请求结果
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            LOCATION_PERMISSION_REQUEST_CODE -> {
+                if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                    locationManager.startLocation(this)
+                } else {
+                    showToast("需要位置权限获取天气")
                 }
             }
         }
+    }
 
-        companion object {
-            private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
+    companion object {
+        private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
+    }
+
+    private fun initBasicComponents() {
+        cameraExecutor = Executors.newSingleThreadExecutor()
+        overlayView = binding.overlayView
+        objectDetectorHelper = ObjectDetectorHelper(this)
+        feedbackManager = FeedbackManager(this)
+        cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
+        weatherManager = WeatherManager(this)
+
+        checkCameraPermission()
+
+        // 初始化定位管理器
+        locationManager = LocationManager.instance!!
+        locationManager.initialize(this)
+        locationManager.callback = this
+
+        binding.fabSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
+    }
 
+    private fun initFallDetection() {
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
 
-        private fun initBasicComponents() {
-            cameraExecutor = Executors.newSingleThreadExecutor()
-            overlayView = binding.overlayView
-            objectDetectorHelper = ObjectDetectorHelper(this)
-            feedbackManager = FeedbackManager(this)
-            cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
-            weatherManager = WeatherManager(this)
+        // 初始化 FallDetector
+        fallDetector = FallDetector(
+            context = this,
+            locationManager = locationManager,
+            weatherCallback = this, // 传递 MainActivity 作为回调
+            sosNumber = "123456789000000"
+        )
+        fallDetector.init(this) // 调用 init 方法
+        fallDetector.setEmergencyCallback(this) // 设置紧急回调
+        fallDetector.locationManager = locationManager // 确保 locationManager 被正确赋值
 
-            checkCameraPermission()
-            getWeatherAndAnnounce()
-
-            binding.fabSettings.setOnClickListener {
-                startActivity(Intent(this, SettingsActivity::class.java))
-            }
-
-            // 初始化定位管理器
-            locationManager = LocationManager.instance!!
-            locationManager.initialize(this)
-            locationManager.callback = this
-        }
-
-        private fun initFallDetection() {
-            sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
-
-            // 初始化 FallDetector
-            fallDetector = FallDetector(
-                context = this,
-                locationManager = locationManager, // 传递 locationManager
-                sosNumber = "123456789000000"
-            )
-            fallDetector.init(this) // 调用 init 方法
-            fallDetector.setEmergencyCallback(this) // 设置紧急回调
-            fallDetector.locationManager = locationManager // 确保 locationManager 被正确赋值
-
-            checkFallPermissions()
-        }
+        checkFallPermissions()
+    }
 
     private fun bindTtsService() {
         Intent(this, TtsService::class.java).also { intent ->
@@ -263,7 +266,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
     override fun onResume() {
         super.onResume()
-        // 启动 com.danmo.guide.feature.fall.FallDetector 的传感器监听
+        // 启动 FallDetector 的传感器监听
         fallDetector.startListening()
     }
 
@@ -271,21 +274,21 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         super.onPause()
         // 停止定位服务
         locationManager.stopLocation()
-        // 停止 com.danmo.guide.feature.fall.FallDetector 的传感器监听
+        // 停止 FallDetector 的传感器监听
         fallDetector.stopListening()
     }
 
-        override fun onDestroy() {
-            super.onDestroy()
-            // 销毁定位资源
-            locationManager.destroy()
+    override fun onDestroy() {
+        super.onDestroy()
+        // 销毁定位资源
+        locationManager.destroy()
 
-            if (isTtsBound) {
-                unbindService(ttsConnection)
-                isTtsBound = false
-            }
-            cameraExecutor.shutdown()
+        if (isTtsBound) {
+            unbindService(ttsConnection)
+            isTtsBound = false
         }
+        cameraExecutor.shutdown()
+    }
 
     // region 跌倒检测回调
     override fun onEmergencyDetected() {
@@ -408,19 +411,30 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     // endregion
 
     // region 通用工具方法
-    private fun getWeatherAndAnnounce() {
+    override fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String) {
         lifecycleScope.launch {
-            if (isWeatherAnnounced) return@launch
-            isWeatherAnnounced = true
-
-            weatherManager.getLocationByIP()?.let { location ->
-                weatherManager.getWeather(location.latitude, location.longitude)?.let { data ->
-                    FeedbackManager.getInstance(this@MainActivity)
-                        .enqueueWeatherAnnouncement(
-                            weatherManager.generateSpeechText(data)
-                        )
+            try {
+                if (abs(lat) < 0.1 || abs(lon) < 0.1) {
+                    showToast("无法获取有效位置")
+                    return@launch
                 }
-            } ?: showToast(getString(R.string.location_failed))
+
+                val weatherData = weatherManager.getWeather(lat, lon)
+                weatherData?.let {
+                    val speechText = weatherManager.generateSpeechText(it, cityName)
+                    speakWeather(speechText)
+                }
+            } catch (e: Exception) {
+                Log.e("Weather", "获取天气失败", e)
+                showToast("天气获取失败")
+            }
+        }
+    }
+
+    override fun speakWeather(message: String) {
+        ttsService?.speak(message) ?: run {
+            Log.w("TTS", "TTS服务未初始化")
+            showToast("语音服务不可用")
         }
     }
 

@@ -17,25 +17,9 @@ import kotlin.math.abs
 
 class WeatherManager(private val context: Context) {
     companion object {
-        // 城市名称映射表（可扩展）
-        private val chineseCityMap = mapOf(
-            "Wuhan" to "武汉",
-            "Beijing" to "北京",
-            "Shanghai" to "上海",
-            "Guangzhou" to "广州",
-            "Shenzhen" to "深圳",
-            "Chengdu" to "成都",
-            "Chongqing" to "重庆",
-            "Hangzhou" to "杭州",
-            "Nanjing" to "南京",
-            "Tianjin" to "天津"
-        )
-
-        // 城市名称转换方法
+        // 城市名称转换方法（不再使用映射表）
         fun getChineseCityName(englishName: String?): String {
-            return englishName?.let {
-                chineseCityMap[it] ?: it
-            } ?: "未知地区"
+            return englishName ?: "未知地区"
         }
     }
 
@@ -46,38 +30,6 @@ class WeatherManager(private val context: Context) {
 
     private val gson = Gson()
 
-    // 获取IP地址定位
-    suspend fun getLocationByIP(): GeoLocation? {
-        var response: Response? = null
-        return withContext(Dispatchers.IO) {
-            try {
-                val apiKey = BuildConfig.IPDATA_API_KEY
-                val request = Request.Builder()
-                    .url("https://api.ipdata.co?api-key=$apiKey")
-                    .build()
-
-                response = client.newCall(request).execute()
-                if (response!!.isSuccessful) {
-                    response!!.body?.string()?.let { json ->
-                        val geoLocation = gson.fromJson(json, GeoLocation::class.java)
-                        // 添加日志记录城市信息
-                        Log.d("Weather", "IP定位成功，城市：${geoLocation.city}")
-                        return@withContext geoLocation
-                    }
-                } else {
-                    // 添加日志记录请求失败
-                    Log.e("Weather", "IP定位请求失败，状态码：${response?.code}")
-                }
-                null
-            } catch (e: Exception) {
-                Log.e("Weather", "IP定位失败", e)
-                null
-            } finally {
-                response?.close()
-            }
-        }
-    }
-
     // 获取天气数据
     suspend fun getWeather(lat: Double, lon: Double): WeatherData? {
         var response: Response? = null
@@ -86,23 +38,16 @@ class WeatherManager(private val context: Context) {
                 val apiKey = BuildConfig.OPENWEATHER_API_KEY
                 val url = "https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lon&appid=$apiKey&units=metric&lang=zh_cn"
 
+                Log.d("Weather", "请求天气数据的 URL: $url")
+
                 val request = Request.Builder().url(url).build()
                 response = client.newCall(request).execute()
 
                 if (response!!.isSuccessful) {
                     response!!.body?.string()?.let { json ->
-                        val weatherData = gson.fromJson(json, WeatherData::class.java)
-                        // 数据完整性检查
-                        if (weatherData.name.isNullOrEmpty() || weatherData.weather.isNullOrEmpty()) {
-                            throw IllegalStateException("返回数据不完整")
-                        }
-                        // 添加日志记录城市信息
-                        Log.d("Weather", "获取天气数据成功，城市：${weatherData.name}")
-                        return@withContext weatherData
+                        Log.d("Weather", "天气数据响应: $json")
+                        return@withContext gson.fromJson(json, WeatherData::class.java)
                     }
-                } else {
-                    // 添加日志记录请求失败
-                    Log.e("Weather", "天气数据请求失败，状态码：${response?.code}")
                 }
                 null
             } catch (e: Exception) {
@@ -114,18 +59,19 @@ class WeatherManager(private val context: Context) {
         }
     }
 
-    fun generateSpeechText(weather: WeatherData, time: String? = null): String {
+    fun generateSpeechText(weather: WeatherData, cityName: String, time: String? = null): String {
         return buildString {
             try {
                 // 如果传入的时间为 null，则获取系统当前时间
                 val currentTime = time ?: System.currentTimeMillis().let {
                     SimpleDateFormat("HH:mm", Locale.getDefault()).format(it)
                 }
-                val cityName = getChineseCityName(weather.name)
                 val temp = weather.main?.temp?.toInt() ?: 999
                 val feelsLike = weather.main?.feelsLike?.toInt() ?: 999
                 val weatherDesc = weather.weather?.firstOrNull()?.description ?: ""
                 val windSpeed = weather.wind?.speed?.toInt() ?: 0
+
+                Log.d("Weather", "生成播报文本: 城市=$cityName, 温度=$temp, 天气描述=$weatherDesc")
 
                 append("亲爱的先行体验官，")
                 // 智能时间问候
@@ -167,7 +113,6 @@ class WeatherManager(private val context: Context) {
                     "雾" in weatherDesc -> append("，外面有雾，出行要注意安全哦")
                 }
 
-
                 // 智能生活建议
                 when {
                     "雨" in weatherDesc -> append("，出门一定要记得带伞哦")
@@ -187,23 +132,17 @@ class WeatherManager(private val context: Context) {
                 .replace("！。", "！")
         }
     }
-    // 数据类
-    data class GeoLocation(
-        val latitude: Double,
-        val longitude: Double,
-        val city: String,
-        val country_name: String
-    )
 
+    // 数据类
     data class WeatherData(
-        val name: String?,      // 城市英文名
+        var name: String?,      // 城市名称（改为 var 以便修改）
         val main: Main?,
         val weather: List<Weather>?,
         val wind: Wind?
     ) {
         data class Main(
             val temp: Float?,
-            @SerializedName("feels_like")  // 添加注解映射JSON字段
+            @SerializedName("feels_like")
             val feelsLike: Float?,
             val humidity: Int?
         )

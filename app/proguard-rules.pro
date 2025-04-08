@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+ -dontwarn com.squareup.**
+ -dontwarn okio.**
+ -keep public class org.codehaus.* { *; }
+ -keep public class java.nio.* { *; }
+ -dontwarn com.qweather.sdk.**
+ -keep class com.qweather.sdk.** { *;}

@@ -17,16 +17,16 @@ class LocationManager private constructor() : AMapLocationListener {
     private var locationClient: AMapLocationClient? = null
     private var locationOption: AMapLocationClientOption? = null
     var callback: LocationCallback? = null
+    private var isWeatherButton = false // 添加一个布尔变量来区分按钮来源
 
-    // endregion
-    // region 公开方法
     fun initialize(activity: Activity) {
         this.activityRef = WeakReference(activity)
         initLocationSettings()
     }
 
-    fun startLocation(callback: LocationCallback) {
+    fun startLocation(callback: LocationCallback, isWeatherButton: Boolean = false) {
         this.callback = callback
+        this.isWeatherButton = isWeatherButton
         if (checkPermissions()) {
             startLocationService()
         }
@@ -44,8 +44,6 @@ class LocationManager private constructor() : AMapLocationListener {
         activityRef = null
     }
 
-    // endregion
-    // region 定位实现
     private fun initLocationSettings() {
         try {
             val context = safeContext ?: return
@@ -77,8 +75,6 @@ class LocationManager private constructor() : AMapLocationListener {
         }
     }
 
-    // endregion
-    // region 权限处理
     private fun checkPermissions(): Boolean {
         val activity = safeActivity ?: return false
 
@@ -122,22 +118,20 @@ class LocationManager private constructor() : AMapLocationListener {
         }
     }
 
-    // endregion
-    // region 回调处理
     override fun onLocationChanged(aMapLocation: AMapLocation?) {
-        if (callback == null) return
-
-        if (aMapLocation != null) {
-            if (aMapLocation.getErrorCode() === 0) {
-                notifySuccess(aMapLocation)
+        if (callback != null) {
+            if (aMapLocation != null) {
+                if (aMapLocation.getErrorCode() === 0) {
+                    notifySuccess(aMapLocation)
+                } else {
+                    notifyError(
+                        aMapLocation.getErrorCode(),
+                        getErrorInfo(aMapLocation.getErrorCode())
+                    )
+                }
             } else {
-                notifyError(
-                    aMapLocation.getErrorCode(),
-                    getErrorInfo(aMapLocation.getErrorCode())
-                )
+                notifyError(-3, "定位结果为空")
             }
-        } else {
-            notifyError(-3, "定位结果为空")
         }
     }
 
@@ -145,7 +139,7 @@ class LocationManager private constructor() : AMapLocationListener {
         val activity = safeActivity
         activity?.runOnUiThread {
             if (callback != null) {
-                callback!!.onLocationSuccess(location)
+                callback!!.onLocationSuccess(location, isWeatherButton) // 传递 isWeatherButton 参数
             }
         }
     }
@@ -179,7 +173,6 @@ class LocationManager private constructor() : AMapLocationListener {
     }
 
     private val safeActivity: Activity?
-        // endregion
         get() = if ((activityRef != null)) activityRef!!.get() else null
 
     private val safeContext: Context?
@@ -188,15 +181,12 @@ class LocationManager private constructor() : AMapLocationListener {
             return if ((activity != null)) activity.applicationContext else null
         }
 
-    // endregion
-    // region 回调接口
     interface LocationCallback {
-        fun onLocationSuccess(location: AMapLocation?)
+        fun onLocationSuccess(location: AMapLocation?, isWeatherButton: Boolean)
         fun onLocationFailure(errorCode: Int, errorInfo: String?)
-    } // endregion
+    }
 
     companion object {
-        // region 单例模式
         @Volatile
         var instance: LocationManager? = null
             get() {
@@ -211,8 +201,6 @@ class LocationManager private constructor() : AMapLocationListener {
             }
             private set
 
-        // endregion
-        // region 配置参数
         private const val REQUEST_CODE_PERMISSION = 1001
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,

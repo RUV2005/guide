@@ -22,18 +22,29 @@ import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import com.amap.api.location.AMapLocation
+import com.amap.api.location.AMapLocationClient
 import com.danmo.guide.feature.location.LocationManager
 import kotlin.math.abs
 import kotlin.math.sqrt
 
 class FallDetector(
-    var locationManager: LocationManager,
-    private val context: Context,
-    private val sosNumber: String = "123456789000000"
+var locationManager: LocationManager,
+private val context: Context,
+private val weatherCallback: WeatherCallback, // 添加回调
+private val sosNumber: String = "123456789000000"
 ) : SensorEventListener, LocationManager.LocationCallback { // 添加接口实现
 
     interface EmergencyCallback {
         fun onEmergencyDetected()
+    }
+
+    fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String) {
+        weatherCallback.getWeatherAndAnnounce(lat, lon, cityName)
+    }
+
+    interface WeatherCallback {
+        fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String)
+        fun speakWeather(message: String)
     }
 
     // 状态管理
@@ -52,10 +63,10 @@ class FallDetector(
 
     // TTS 服务
     var ttsService: TtsService? = null
-        set(value) {
-            field = value
-            Log.d("com.danmo.guide.feature.fall.FallDetector", "TTS service set")
-        }
+    set(value) {
+        field = value
+        Log.d("com.danmo.guide.feature.fall.FallDetector", "TTS service set")
+    }
 
     private var isServiceBound = false
 
@@ -155,12 +166,10 @@ class FallDetector(
         }
     }
 
-
     private fun stopEmergencyVibration() {
         vibrator?.cancel()
         vibrationHandler.removeCallbacksAndMessages(null)
     }
-
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun detectImpactPhase(currentAccel: Float) {
@@ -187,7 +196,6 @@ class FallDetector(
     }
 
     // 紧急处理
-// 修改触发逻辑确保同步
     @RequiresApi(Build.VERSION_CODES.O)
     fun triggerFallDetection() {
         if (!isFallDetected) {
@@ -203,9 +211,12 @@ class FallDetector(
     }
 
     // 新增位置回调方法实现
-    override fun onLocationSuccess(location: AMapLocation?) {
-        // 处理定位成功逻辑
-        Log.d("FallDetector", "定位成功：${location?.toStr()}")
+    override fun onLocationSuccess(location: AMapLocation?, isWeatherButton: Boolean) {
+        location?.let {
+            if (isWeatherButton) {
+                weatherCallback.getWeatherAndAnnounce(it.latitude, it.longitude, it.city)
+            }
+        }
     }
 
     override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
@@ -309,7 +320,6 @@ class FallDetector(
         // 10秒后执行自动触发逻辑
         handler.postDelayed(runnable, 10000)
     }
-
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 }
