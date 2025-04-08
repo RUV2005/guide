@@ -137,6 +137,12 @@
             android:label="@string/settings"
             android:parentActivityName=".ui.main.MainActivity">
         </activity>
+        <!-- AndroidManifest.xml -->
+        <activity
+            android:name=".ui.guide.GuideActivity"
+            android:screenOrientation="landscape"
+            android:exported="false"
+            tools:ignore="DiscouragedApi" />
 
         <!-- 文本转语音服务 -->
         <service

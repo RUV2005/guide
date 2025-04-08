@@ -251,7 +251,7 @@ class DetectionProcessor {
     ): Quadruple<String, String, MessageQueueManager.MsgPriority, String>? {
         // 计算方向并过滤远距离 | Calculate direction and filter far objects
         val direction = calculateDirection(result.boundingBox)
-        if (direction.contains("远")) return null  // 移出apply作用域直接判断
+//        if (direction.contains("远")) return null  // 移出apply作用域直接判断
 
         // 过滤无效标签 | Filter invalid labels
         if (shouldSuppressMessage(label) || label.isEmpty()) return null
