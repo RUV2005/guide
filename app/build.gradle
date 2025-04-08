@@ -33,7 +33,7 @@ android {
         versionName "1.0"
 
         ndk {
-            abiFilters 'armeabi', 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
         }
 
         lintOptions {
@@ -153,9 +153,7 @@ dependencies {
     implementation(libs.oboe)
     implementation libs.media3.exoplayer
     implementation libs.androidx.constraintlayout
-    implementation libs.firebase.crashlytics.buildtools
     implementation libs.tensorflow.lite.metadata
-    implementation libs.firebase.firestore.ktx
     implementation libs.androidx.preference.ktx
     implementation(libs.androidx.multidex) // 添加 multidex 依赖
     testImplementation libs.junit

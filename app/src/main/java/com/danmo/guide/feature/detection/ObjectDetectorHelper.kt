@@ -1,6 +1,9 @@
 package com.danmo.guide.feature.detection
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
@@ -11,120 +14,243 @@ import org.tensorflow.lite.task.vision.detector.ObjectDetector
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * 物体检测帮助类，封装TensorFlow Lite物体检测功能
- * Object detection helper class encapsulating TensorFlow Lite detection features
+ * 优化版物体检测帮助类 - 支持CPU占用控制
+ * Optimi
+ * zed object detector helper with CPU usage control
  */
 class ObjectDetectorHelper(
-    private val context: Context,                   // 上下文用于访问资源 / Context for resource access
-    private val listener: DetectionListener? = null // 状态监听器（可选） / State listener (optional)
+    private val context: Context,
+    private val listener: DetectionListener? = null
 ) {
     companion object {
-        @Volatile var confidenceThreshold: Float = 0.4f  // 动态置信度阈值（线程安全） / Dynamic confidence threshold (thread-safe)
-        private const val MODEL_FILE = "efficientdet_lite0.tflite"  // 模型文件路径 / Model file path
+        @Volatile var confidenceThreshold: Float = 0.4f
+        private const val MODEL_FILE = "efficientdet_lite0.tflite"
+        private const val TARGET_INPUT_SIZE = 320  // 优化输入尺寸
     }
 
-    private var objectDetector: ObjectDetector? = null  // TFLite检测器实例 / TFLite detector instance
+    // 优化配置参数
+    enum class PowerMode {
+        LOW_POWER, BALANCED, HIGH_ACCURACY
+    }
 
-    // 初始化块：创建检测器 / Initialization block: create detector
+    private var objectDetector: ObjectDetector? = null
+    private var powerMode: PowerMode = PowerMode.BALANCED
+    private var lastProcessTime = 0L
+    private var isProcessing = false
+    private val detectionScope = CoroutineScope(Dispatchers.Default + Job())
+
+    // 可复用对象池
+    private val tensorImagePool = mutableListOf<TensorImage>()
+    private val bitmapPool = mutableListOf<Bitmap>()
+
     init {
         initializeDetector()
     }
 
-    /**
-     * 初始化物体检测器实例
-     * Initialize object detector instance
-     */
     private fun initializeDetector() {
         try {
-            val byteBuffer = loadModelFile()        // 加载模型文件 / Load model file
-            val options = buildDetectorOptions()    // 构建配置选项 / Build configuration options
+            val options = when (powerMode) {
+                PowerMode.LOW_POWER -> buildLowPowerOptions()
+                PowerMode.BALANCED -> buildBalancedOptions()
+                PowerMode.HIGH_ACCURACY -> buildHighAccuracyOptions()
+            }
 
-            objectDetector = ObjectDetector.createFromBufferAndOptions(byteBuffer, options)
-            listener?.onInitialized()  // 通知初始化完成 / Notify initialization completion
+            objectDetector?.close()
+            objectDetector = ObjectDetector.createFromBufferAndOptions(
+                loadModelFile(), options
+            )
+            listener?.onInitialized()
         } catch (e: Exception) {
-            val errorMsg = "检测器初始化失败: ${e.localizedMessage}"
-            Log.e("ObjectDetector", errorMsg)
-            listener?.onError(errorMsg) // 错误回调 / Error callback
+            handleError("Detector init failed", e)
         }
     }
 
     /**
-     * 从assets加载模型文件到ByteBuffer
-     * Load model file from assets to ByteBuffer
+     * 同步检测接口
+     * Synchronous detection interface
      */
+    fun detect(tensorImage: TensorImage, rotationDegrees: Int): List<Detection> {
+        synchronized(this) {
+            if (isProcessing) return emptyList()
+            isProcessing = true
+
+            try {
+                val processedImage = processImageRotation(tensorImage, rotationDegrees)
+                return objectDetector?.detect(processedImage) ?: emptyList()
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+
+    private fun buildLowPowerOptions(): ObjectDetector.ObjectDetectorOptions {
+        return ObjectDetector.ObjectDetectorOptions.builder()
+            .setBaseOptions(
+                BaseOptions.builder()
+                    .setNumThreads(1)
+                    .useNnapi()  // 优先使用硬件加速
+                    .build()
+            )
+            .setMaxResults(3)
+            .setScoreThreshold(confidenceThreshold + 0.1f)
+            .build()
+    }
+
+    private fun buildBalancedOptions(): ObjectDetector.ObjectDetectorOptions {
+        return ObjectDetector.ObjectDetectorOptions.builder()
+            .setBaseOptions(
+                BaseOptions.builder()
+                    .setNumThreads(2)
+                    .useNnapi()
+                    .build()
+            )
+            .setMaxResults(5)
+            .setScoreThreshold(confidenceThreshold)
+            .build()
+    }
+
+    private fun buildHighAccuracyOptions(): ObjectDetector.ObjectDetectorOptions {
+        return ObjectDetector.ObjectDetectorOptions.builder()
+            .setBaseOptions(
+                BaseOptions.builder()
+                    .setNumThreads(4)
+                    .build()
+            )
+            .setMaxResults(10)
+            .setScoreThreshold(confidenceThreshold - 0.05f)
+            .build()
+    }
+
     private fun loadModelFile(): ByteBuffer {
-        val fileDescriptor = context.assets.openFd(MODEL_FILE)
-        return FileInputStream(fileDescriptor.fileDescriptor).use { inputStream ->
-            inputStream.channel.run {
-                map(  // 内存映射提高读取效率 / Memory mapping for efficient reading
+        return context.assets.openFd(MODEL_FILE).use { fd ->
+            FileInputStream(fd.fileDescriptor).use { fis ->
+                fis.channel.map(
                     FileChannel.MapMode.READ_ONLY,
-                    fileDescriptor.startOffset,
-                    fileDescriptor.declaredLength
+                    fd.startOffset,
+                    fd.declaredLength
                 ).apply {
-                    fileDescriptor.close()  // 及时关闭文件描述符 / Close file descriptor promptly
+                    fd.close()
                 }
             }
         }
     }
 
     /**
-     * 构建检测器配置选项
-     * Build detector configuration options
+     * 异步检测接口（推荐使用）
+     * Async detection interface (recommended)
      */
-    private fun buildDetectorOptions(): ObjectDetector.ObjectDetectorOptions {
-        // 基础配置：使用所有可用CPU核心 / Base config: use all available CPU cores
-        val baseOptions = BaseOptions.builder()
-            .setNumThreads(Runtime.getRuntime().availableProcessors().coerceAtLeast(1))
-            .build()
+    fun detectAsync(
+        bitmap: Bitmap,
+        rotationDegrees: Int,
+        callback: (List<Detection>) -> Unit
+    ) {
+        detectionScope.launch {
+            val startTime = SystemClock.elapsedRealtime()
 
-        return ObjectDetector.ObjectDetectorOptions.builder()
-            .setBaseOptions(baseOptions)
-            .setMaxResults(5)                   // 最大检测结果数 / Maximum detection results
-            .setScoreThreshold(confidenceThreshold) // 置信度过滤阈值 / Confidence filter threshold
-            .build()
-    }
+            // 帧率控制 (10 FPS)
+            if (startTime - lastProcessTime < 100) {
+                return@launch
+            }
+            lastProcessTime = startTime
 
-    /**
-     * 执行物体检测
-     * Perform object detection
-     * @param image 输入图像张量 / Input image tensor
-     * @param rotationDegrees 图像旋转角度（0/90/180/270） / Image rotation degrees (0/90/180/270)
-     * @return 检测结果列表 / List of detection results
-     */
-    fun detect(image: TensorImage, rotationDegrees: Int): List<Detection> {
-        return try {
-            // 计算有效旋转次数（支持90度倍数） / Calculate valid rotation steps (90-degree multiples)
-            val validRotation = (rotationDegrees / 90).coerceIn(0..3)
+            // 线程优先级控制
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
 
-            // 构建图像处理器（自动旋转校正） / Build image processor (auto-rotation)
-            val imageProcessor = ImageProcessor.Builder()
-                .add(Rot90Op(-validRotation))  // 逆向旋转补偿设备方向 / Compensate device orientation
-                .build()
+            try {
+                val processedBitmap = preprocessImage(bitmap)
+                val tensorImage = getReusableTensorImage().apply {
+                    load(processedBitmap)
+                }
 
-            objectDetector?.detect(imageProcessor.process(image)) ?: emptyList()
-        } catch (e: Exception) {
-            Log.e("Detection", "检测失败: ${e.stackTraceToString()}")
-            emptyList()  // 返回空列表防止崩溃 / Return empty list to prevent crash
+                val result = objectDetector?.detect(
+                    processImageRotation(tensorImage, rotationDegrees)
+                ) ?: emptyList()
+
+                withContext(Dispatchers.Main) {
+                    callback(result)
+                }
+            } catch (e: Exception) {
+                handleError("Detection failed", e)
+            } finally {
+                isProcessing = false
+                Log.d("Perf", "Detection cost: ${SystemClock.elapsedRealtime() - startTime}ms")
+            }
         }
     }
 
     /**
-     * 释放检测器资源
-     * Release detector resources
+     * 图像预处理（尺寸优化）
+     * Image preprocessing (size optimization)
      */
-    fun close() {
-        objectDetector?.close()  // 显式释放Native资源 / Explicitly release native resources
-        objectDetector = null    // 帮助GC回收 / Assist GC collection
+    private fun preprocessImage(bitmap: Bitmap): Bitmap {
+        // 从对象池获取或创建Bitmap
+        val recycled = bitmapPool.find {
+            it.width == TARGET_INPUT_SIZE && it.height == TARGET_INPUT_SIZE
+        }
+        recycled?.eraseColor(0)
+
+        return recycled ?: run {
+            val scale = TARGET_INPUT_SIZE.toFloat() / bitmap.width.coerceAtLeast(1)
+            Bitmap.createScaledBitmap(
+                bitmap,
+                TARGET_INPUT_SIZE,
+                (bitmap.height * scale).toInt(),
+                true
+            )
+        }.also {
+            bitmapPool.add(it)
+        }
     }
 
-    /**
-     * 检测状态监听接口
-     * Detection status listener interface
-     */
+    private fun processImageRotation(image: TensorImage, degrees: Int): TensorImage {
+        val validRotation = (degrees / 90).coerceIn(0..3)
+        return ImageProcessor.Builder()
+            .add(Rot90Op(-validRotation))
+            .build()
+            .process(image)
+    }
+
+    private fun getReusableTensorImage(): TensorImage {
+        return tensorImagePool.find { true }?.also {
+            tensorImagePool.remove(it)
+        } ?: TensorImage()
+    }
+
+    private fun recycleTensorImage(image: TensorImage) {
+        if (tensorImagePool.size < 3) {
+            tensorImagePool.add(image)
+        }
+    }
+
+    fun setPowerMode(mode: PowerMode) {
+        if (this.powerMode != mode) {
+            this.powerMode = mode
+            initializeDetector()
+        }
+    }
+
+    fun close() {
+        objectDetector?.close()
+        tensorImagePool.clear()
+        bitmapPool.forEach { it.recycle() }
+        bitmapPool.clear()
+    }
+
+    private fun handleError(msg: String, e: Exception) {
+        val errorMsg = "$msg: ${e.localizedMessage}"
+        Log.e("ObjectDetector", errorMsg)
+        listener?.onError(errorMsg)
+    }
+
     interface DetectionListener {
-        fun onError(error: String)       // 错误发生时回调 / Callback on error
-        fun onInitialized()              // 初始化完成时回调 / Callback when initialized
+        fun onError(error: String)
+        fun onInitialized()
     }
 }
