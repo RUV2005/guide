@@ -148,7 +148,6 @@ dependencies {
     // 其他
 
     implementation files('libs/AMapLocation_6.4.9_20241226.aar')
-    implementation files('libs/QWeather_Public_Android_V5.0.0.jar')
 
 
     implementation(libs.oboe)
