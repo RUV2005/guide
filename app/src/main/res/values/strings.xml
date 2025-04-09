@@ -3,6 +3,7 @@
     <string name="slogan_text">让代码有温度，\n给算法赋予心跳。\n此刻开始，光迹就是你感知世界的第二双眼睛!</string>
     <string name="loading_text">黑暗中的一束光正在加载中…</string>
     <string name="settings">设置</string>
+    <string name="status_text_content_description">状态信息</string>
     <string name="default_emergency_number">120</string>
     <string name="fall_detected_warning">检测到跌倒！正在启动紧急响应…</string>
     <string name="fall_alert_voice">检测到跌倒，已启动紧急呼叫</string>

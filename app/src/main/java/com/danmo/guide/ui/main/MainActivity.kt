@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,7 +47,6 @@ import kotlin.math.abs
 class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     SensorEventListener, LocationManager.LocationCallback, FallDetector.WeatherCallback {
 
-    // 基础功能模块
     private lateinit var locationManager: LocationManager
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
@@ -57,34 +57,27 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private lateinit var weatherManager: WeatherManager
     private var isWeatherAnnounced = false
 
-    // 跌落检测模块
     private lateinit var fallDetector: FallDetector
     private lateinit var sensorManager: SensorManager
 
-    // TTS 服务
     private var ttsService: TtsService? = null
     private var isTtsBound = false
 
-    // 环境光传感器的上次值
     private var lastLightValue = 0f
 
-    // 误报处理计数器
     private var falseAlarmCancelCount = 0
 
-    // 权限请求
     private val requestPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
             val allGranted = grants.all { it.value }
             if (!allGranted) showToast("部分功能可能受限")
         }
 
-    // 服务连接
     private val ttsConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as TtsService.TtsBinder
             ttsService = binder.getService()
             Log.d("MainActivity", "TTS服务已连接")
-            // 将 TTS 服务传递给 FallDetector
             fallDetector.ttsService = ttsService
         }
 
@@ -101,26 +94,14 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         AMapLocationClient.updatePrivacyShow(this, true, true)
         AMapLocationClient.updatePrivacyAgree(this, true)
 
-        // 初始化基础模块
         initBasicComponents()
-
-        // 初始化跌倒检测
         initFallDetection()
-
-        // 绑定TTS服务
         bindTtsService()
 
-        // 初始化定位管理器
-        locationManager = LocationManager.instance!!
-        locationManager.initialize(this)
-
-
-// 定位按钮点击事件
         binding.fabLocation.setOnClickListener {
             startLocationDetection(isWeatherButton = false)
         }
 
-// 天气按钮点击事件
         binding.fabWeather.setOnClickListener {
             if (checkLocationPermission()) {
                 showToast("正在获取天气...")
@@ -131,7 +112,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
-    // 在 startLocationDetection 方法中添加日志
     private fun startLocationDetection(isWeatherButton: Boolean = false) {
         Log.d("LocationFlow", "尝试启动定位...")
         if (checkLocationPermission()) {
@@ -147,10 +127,8 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         runOnUiThread {
             location?.let {
                 if (isWeatherButton) {
-                    // 如果是天气按钮触发的定位，播报天气信息
                     fallDetector.getWeatherAndAnnounce(it.latitude, it.longitude, it.city)
                 } else {
-                    // 如果是定位按钮触发的定位，播报位置信息
                     val ttsMessage = """
                     当前位置：${it.address}
                     经度：${it.longitude}
@@ -165,21 +143,14 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
-    // 修改后的 onLocationFailure 方法
     override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
         runOnUiThread {
-            // 构建错误日志
             val errorLog = "定位失败 (错误码: $errorCode): ${errorInfo ?: "未知错误"}"
-
-            // 输出到 Logcat
             Log.e("LocationError", errorLog)
-
-            // 原有 Toast 提示
             showToast(errorLog)
         }
     }
 
-    // 权限检查方法
     private fun checkLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             this,
@@ -198,7 +169,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         )
     }
 
-    // 处理权限请求结果
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<String>,
@@ -230,7 +200,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
         checkCameraPermission()
 
-        // 初始化定位管理器
         locationManager = LocationManager.instance!!
         locationManager.initialize(this)
         locationManager.callback = this
@@ -243,16 +212,15 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private fun initFallDetection() {
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
 
-        // 初始化 FallDetector
         fallDetector = FallDetector(
             context = this,
             locationManager = locationManager,
-            weatherCallback = this, // 传递 MainActivity 作为回调
+            weatherCallback = this,
             sosNumber = "123456789000000"
         )
-        fallDetector.init(this) // 调用 init 方法
-        fallDetector.setEmergencyCallback(this) // 设置紧急回调
-        fallDetector.locationManager = locationManager // 确保 locationManager 被正确赋值
+        fallDetector.init(this)
+        fallDetector.setEmergencyCallback(this)
+        fallDetector.locationManager = locationManager
 
         checkFallPermissions()
     }
@@ -266,21 +234,17 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
     override fun onResume() {
         super.onResume()
-        // 启动 FallDetector 的传感器监听
         fallDetector.startListening()
     }
 
     override fun onPause() {
         super.onPause()
-        // 停止定位服务
         locationManager.stopLocation()
-        // 停止 FallDetector 的传感器监听
         fallDetector.stopListening()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // 销毁定位资源
         locationManager.destroy()
 
         if (isTtsBound) {
@@ -290,12 +254,14 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         cameraExecutor.shutdown()
     }
 
-    // region 跌倒检测回调
     override fun onEmergencyDetected() {
         runOnUiThread {
             binding.statusText.text = getString(R.string.fall_detected_warning)
             ttsService?.speak(getString(R.string.fall_alert_voice))
             triggerEmergencyCall()
+
+            // 通知读屏器紧急状态已触发
+            binding.statusText.announceForAccessibility(binding.statusText.text)
         }
     }
 
@@ -306,9 +272,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             showToast(getString(R.string.permission_required))
         }
     }
-    // endregion
 
-    // region 权限管理
     private fun checkCameraPermission() {
         when {
             ContextCompat.checkSelfPermission(
@@ -338,9 +302,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         this,
         Manifest.permission.CALL_PHONE
     ) == PackageManager.PERMISSION_GRANTED
-    // endregion
 
-    // region 传感器数据处理
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
@@ -359,13 +321,14 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             } else {
                 getString(R.string.normal_light_status)
             }
+
+            // 通知读屏器光线状态已更新
+            binding.statusText.announceForAccessibility(binding.statusText.text)
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-    // endregion
 
-    // region 误报处理
     override fun onBackPressed() {
         if (fallDetector.isFallDetected()) {
             handleFalseAlarm()
@@ -382,9 +345,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             binding.statusText.text = getString(R.string.normal_status)
         }
     }
-    // endregion
 
-    // region 摄像头相关
     private fun startCamera() {
         cameraManager.initializeCamera(binding.previewView.surfaceProvider)
     }
@@ -408,9 +369,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             }
         }
     }
-    // endregion
 
-    // region 通用工具方法
     override fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String) {
         lifecycleScope.launch {
             try {
@@ -432,16 +391,25 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     }
 
     override fun speakWeather(message: String) {
-        ttsService?.speak(message) ?: run {
+        Log.d("Weather", "播报天气: $message") // 添加日志
+        // 强制通过 TTS 播报
+        if (ttsService == null) {
             Log.w("TTS", "TTS服务未初始化")
             showToast("语音服务不可用")
+        } else {
+            ttsService?.speak(message)
+            Log.d("TTS", "通过TTS播报天气")
         }
     }
 
     private fun handleDetectionResults(results: List<Detection>) {
-        results.maxByOrNull { it.categories.firstOrNull()?.score ?: 0f }?.let {
-            feedbackManager.handleDetectionResult(it)
-        }
+        results
+            .filter { it.categories.isNotEmpty() } // 确保 categories 不为空
+            .maxByOrNull {
+                it.categories.maxByOrNull { c -> c.score }?.score ?: 0f
+            }?.let {
+                feedbackManager.handleDetectionResult(it)
+            }
     }
 
     private fun updateOverlayView(results: List<Detection>, rotation: Int) {
@@ -462,20 +430,16 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
         runOnUiThread {
             binding.statusText.text = when {
-                filtered.isEmpty() -> getString(R.string.no_objects_detected)
-                else -> "检测到: ${
-                    filtered.joinToString {
-                        DetectionProcessor.getInstance(this).getChineseLabel(
-                            it.categories.maxByOrNull { c -> c.score }?.label ?: "unknown"
-                        )
-                    }
-                }"
+                filtered.isEmpty() == true -> getString(R.string.no_objects_detected)
+                else -> "检测到: ${filtered.joinToString { DetectionProcessor.getInstance(this).getChineseLabel(it.categories.maxByOrNull { c -> c.score }?.label ?: "unknown") }}"
             }
+
+            // 通知读屏器内容已更新
+            binding.statusText.announceForAccessibility(binding.statusText.text)
         }
     }
 
     private fun showToast(message: String) {
         runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
     }
-    // endregion
 }
