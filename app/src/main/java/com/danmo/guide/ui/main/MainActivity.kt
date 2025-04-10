@@ -1,8 +1,13 @@
 package com.danmo.guide.ui.main
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.AlertDialog
+import android.app.DownloadManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.hardware.Sensor
@@ -11,6 +16,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.IBinder
 import android.util.Log
 import android.view.accessibility.AccessibilityManager
@@ -21,6 +27,7 @@ import androidx.annotation.RequiresApi
 import androidx.camera.core.ImageAnalysis
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
@@ -34,18 +41,31 @@ import com.danmo.guide.feature.fall.TtsService
 import com.danmo.guide.feature.feedback.DetectionProcessor
 import com.danmo.guide.feature.feedback.FeedbackManager
 import com.danmo.guide.feature.location.LocationManager
+import com.danmo.guide.feature.update.UpdateChecker
 import com.danmo.guide.feature.weather.WeatherManager
 import com.danmo.guide.ui.components.OverlayView
 import com.danmo.guide.ui.settings.SettingsActivity
 import kotlinx.coroutines.launch
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.task.vision.detector.Detection
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
+import android.net.Uri
+import android.content.BroadcastReceiver
+import android.database.Cursor
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     SensorEventListener, LocationManager.LocationCallback, FallDetector.WeatherCallback {
+    private companion object {
+        const val UPDATE_URL = "http://47.120.4.209/downloads/app_latest.apk"
+        const val LOCATION_PERMISSION_REQUEST_CODE = 1001
+        private var lastSpeakTime = 0L
+    }
 
     private lateinit var locationManager: LocationManager
     private lateinit var binding: ActivityMainBinding
@@ -66,6 +86,19 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private var lastLightValue = 0f
 
     private var falseAlarmCancelCount = 0
+    private val updateChecker = UpdateChecker()
+    private var isCheckingUpdate = false
+
+    private val accessibilityManager by lazy {
+        getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        return connectivityManager.activeNetwork?.let {
+            connectivityManager.getNetworkCapabilities(it)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } ?: false
+    }
 
     private val requestPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
@@ -79,6 +112,8 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             ttsService = binder.getService()
             Log.d("MainActivity", "TTS服务已连接")
             fallDetector.ttsService = ttsService
+            // 服务连接后处理可能存在的队列
+            ttsService?.processNextInQueue()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -109,6 +144,175 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             } else {
                 requestLocationPermission()
             }
+        }
+        checkAutoUpdate()
+    }
+
+    private fun checkAutoUpdate() {
+        if (!isNetworkAvailable()) {
+            ttsService?.speak("网络不可用，跳过自动更新检查")
+            return
+        }
+
+        if (accessibilityManager.isEnabled) {
+            lifecycleScope.launch {
+                if (!isCheckingUpdate) {
+                    isCheckingUpdate = true
+                    checkUpdate(silent = false)
+                }
+            }
+        }
+    }
+
+    private fun checkUpdate(silent: Boolean = false) {
+        lifecycleScope.launch {
+            try {
+                val currentVersion = getCurrentVersion()
+                Log.d("Update", "当前版本: $currentVersion")
+
+                val serverVersion = updateChecker.getServerVersion()
+                Log.d("Update", "服务器版本: $serverVersion")
+
+                val changelog = updateChecker.getChangelog() ?: getString(R.string.default_changelog)
+                Log.d("Update", "更新日志: $changelog")
+
+                when {
+                    serverVersion == null -> {
+                        ttsService?.speak("无法获取更新信息")
+                    }
+                    VersionComparator.compareVersions(serverVersion, currentVersion) > 0 -> {
+                        showUpdateDialog(changelog, silent)
+                    }
+                    else -> {
+                        if (!silent) ttsService?.speak("当前已是最新版本")
+                    }
+                }
+            } catch (e: Exception) {
+                ttsService?.speak("更新检查失败，请重试")
+            }
+        }
+    }
+
+    private fun showUpdateDialog(changelog: String, silent: Boolean = false) {
+        lastSpeakTime = 0L
+        val shortChangelog = if (changelog.length > 100) {
+            changelog.take(100) + "...（详细内容请查看弹窗）"
+        } else {
+            changelog
+        }
+
+        announceForAccessibility("发现新版本更新，更新内容：$shortChangelog")
+
+        if (!silent) {
+            ttsService?.speak("""
+            用户您好，光迹发现新版本，更新内容包括：
+            ${shortChangelog.replace("\n", "。")}
+            弹窗已打开，请选择立即更新或稍后
+        """.trimIndent())
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("光迹发现新版本")
+            .setMessage(changelog)
+            .setPositiveButton("立即更新") { _, _ -> startDownload() }
+            .setNegativeButton("稍后") { _, _ -> }
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.window?.decorView?.announceForAccessibility("更新弹窗已打开，$shortChangelog")
+        }
+        dialog.show()
+    }
+
+    @SuppressLint("NewApi", "Range")
+    private fun startDownload() {
+        if (!isNetworkAvailable()) {
+            ttsService?.speak("当前无网络连接，无法下载更新")
+            return
+        }
+
+        ttsService?.speak("开始下载更新包，下载过程可能需要几分钟，请保持网络连接")
+
+        val request = DownloadManager.Request(Uri.parse(UPDATE_URL)).apply {
+            setTitle("光迹下载更新")
+            setDescription("正在下载新版本")
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "guide_update.apk")
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            allowScanningByMediaScanner()
+            setAllowedOverMetered(true)
+            setAllowedOverRoaming(true)
+        }
+
+        val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val downloadId = downloadManager.enqueue(request)
+        Log.d("DownloadManager", "Download ID: $downloadId")
+
+        lifecycleScope.launch {
+            while (true) {
+                val query = DownloadManager.Query().setFilterById(downloadId)
+                val cursor = downloadManager.query(query)
+                if (cursor.moveToFirst()) {
+                    val status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
+                    val bytesDownloaded = cursor.getLong(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                    val totalSize = cursor.getLong(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+
+                    Log.d("DownloadProgress", "Downloaded: $bytesDownloaded, Total: $totalSize, Status: $status")
+
+                    when (status) {
+                        DownloadManager.STATUS_RUNNING -> {
+                            if (System.currentTimeMillis() - lastSpeakTime > 5000) {
+                                val progress = (bytesDownloaded.toFloat() / totalSize * 100).toInt()
+                                // 将进度播报加入队列（非即时）
+                                ttsService?.speak("下载进度${progress}%")
+                                lastSpeakTime = System.currentTimeMillis()
+                            }
+                        }
+                        DownloadManager.STATUS_SUCCESSFUL -> {
+                            // 立即播报完成通知（插队到队列最前）
+                            ttsService?.speak("下载完成，准备安装更新", immediate = true)
+                            installApk()
+                            break
+                        }
+                    }
+                }
+                cursor.close()
+                delay(1000)
+            }
+        }
+    }
+
+    private fun installApk() {
+        val apkFile = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "guide_update.apk"
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val contentUri = FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                apkFile
+            )
+            val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = contentUri
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            startActivity(installIntent)
+        } else {
+            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(Uri.fromFile(apkFile), "application/vnd.android.package-archive")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(installIntent)
+        }
+
+        ttsService?.speak("更新包下载完成，请按照提示安装")
+    }
+
+    private fun announceForAccessibility(text: String) {
+        binding.statusText.post {
+            binding.statusText.text = text
+            binding.statusText.announceForAccessibility(text)
         }
     }
 
@@ -186,8 +390,19 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
-    companion object {
-        private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
+    private fun getCurrentVersion(): String {
+        return try {
+            val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0)
+            }
+            pInfo.versionName ?: "1.0.0"
+        } catch (e: Exception) {
+            Log.e("Version", "获取当前版本失败", e)
+            "1.0.0"
+        }
     }
 
     private fun initBasicComponents() {
@@ -260,7 +475,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             ttsService?.speak(getString(R.string.fall_alert_voice))
             triggerEmergencyCall()
 
-            // 通知读屏器紧急状态已触发
             binding.statusText.announceForAccessibility(binding.statusText.text)
         }
     }
@@ -322,7 +536,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                 getString(R.string.normal_light_status)
             }
 
-            // 通知读屏器光线状态已更新
             binding.statusText.announceForAccessibility(binding.statusText.text)
         }
     }
@@ -391,8 +604,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     }
 
     override fun speakWeather(message: String) {
-        Log.d("Weather", "播报天气: $message") // 添加日志
-        // 强制通过 TTS 播报
+        Log.d("Weather", "播报天气: $message")
         if (ttsService == null) {
             Log.w("TTS", "TTS服务未初始化")
             showToast("语音服务不可用")
@@ -404,7 +616,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
     private fun handleDetectionResults(results: List<Detection>) {
         results
-            .filter { it.categories.isNotEmpty() } // 确保 categories 不为空
+            .filter { it.categories.isNotEmpty() }
             .maxByOrNull {
                 it.categories.maxByOrNull { c -> c.score }?.score ?: 0f
             }?.let {
@@ -430,11 +642,10 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
         runOnUiThread {
             binding.statusText.text = when {
-                filtered.isEmpty() == true -> getString(R.string.no_objects_detected)
+                filtered.isEmpty() -> getString(R.string.no_objects_detected)
                 else -> "检测到: ${filtered.joinToString { DetectionProcessor.getInstance(this).getChineseLabel(it.categories.maxByOrNull { c -> c.score }?.label ?: "unknown") }}"
             }
 
-            // 通知读屏器内容已更新
             binding.statusText.announceForAccessibility(binding.statusText.text)
         }
     }

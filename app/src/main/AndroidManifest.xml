@@ -23,21 +23,36 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <!-- 外部存储写入权限（仅限Android 12及以下） -->
-<!--    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"-->
-<!--        android:maxSdkVersion="32"-->
-<!--        tools:ignore="ScopedStorage" />-->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- 高级定位指令权限 -->
     <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
     <!-- 后台定位权限 -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <!-- 安装APP权限 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 允许下载访问管理权限 -->
+    <uses-permission android:name="android.permission.ACCESS_DOWNLOAD_MANAGER"/>
+    <!-- 允许静默下载权限 -->
+    <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION"/>
 
     <!-- ====================== -->
     <!--     功能特性声明区域     -->
     <!-- ====================== -->
     <queries>
+        <!-- 单独定义每个意图 -->
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.android.package-archive" />
         </intent>
     </queries>
 
@@ -67,22 +82,16 @@
         android:label="@string/app_name"
         android:roundIcon="@drawable/eye_care__3_"
         android:supportsRtl="true"
-        tools:targetApi="31">
+        tools:targetApi="31"
+        android:networkSecurityConfig="@xml/network_security_config"
+        >
 
         <!-- 高德地图SDK配置 -->
-        <!--
-            AMap API Key 配置说明：
-            1. 用于高德地图定位、地图显示等核心功能
-            2. 该值需要在高德开放平台申请（https://lbs.amap.com）
-            3. 注意替换为开发者自己的应用Key
-            4. 泄露此Key可能导致服务被滥用
-        -->
         <meta-data
             android:name="com.amap.api.v2.apikey"
             android:value="10e8754f752422eb0c2d5aae0c570ba3" />
 
         <!-- 第三方API密钥 -->
-        <!-- IP查询天气密钥 -->
         <meta-data
             android:name="openweather_api_key"
             android:value="e50c756f96b046b54d6fdf60a941413a" />
@@ -104,13 +113,6 @@
         </activity>
 
         <!-- 高德定位服务组件 -->
-        <!--
-            APSService 说明：
-            1. 高德定位SDK的核心后台服务
-            2. 运行在独立进程（:location）以提升稳定性
-            3. 负责处理GPS、网络定位等底层操作
-            4. 必须与AMap API Key配合使用
-        -->
         <service
             android:name="com.amap.api.location.APSService"
             android:enabled="true"
@@ -140,5 +142,15 @@
             android:enabled="true"
             android:exported="false" />
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+        <uses-library android:name="org.apache.http.legacy" android:required="false"/>
     </application>
 </manifest>

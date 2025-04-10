@@ -25,3 +25,5 @@
  -keep public class java.nio.* { *; }
  -dontwarn com.qweather.sdk.**
  -keep class com.qweather.sdk.** { *;}
+ -keep class com.danmo.guide.ui.main.MainActivity { *; }
+ -keep class com.danmo.guide.feature.update.VersionComparator { *; }
