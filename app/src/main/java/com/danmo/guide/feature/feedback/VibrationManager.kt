@@ -1,12 +1,10 @@
 package com.danmo.guide.feature.feedback
-
 import android.content.Context
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
-
 /**
  * 振动反馈管理器，封装不同Android版本的振动功能
  * Vibration feedback manager encapsulating vibration features across Android versions
@@ -22,11 +20,9 @@ class VibrationManager(context: Context) {
             context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator // 旧版本直接获取振动器 / Legacy vibrator access
         }
     }
-
     companion object {
         @Volatile
         private var instance: VibrationManager? = null // 单例实例 / Singleton instance
-
         /**
          * 获取单例实例
          * Get singleton instance
@@ -38,7 +34,6 @@ class VibrationManager(context: Context) {
             }
         }
     }
-
     /**
      * 执行振动模式
      * Execute vibration pattern
@@ -59,7 +54,6 @@ class VibrationManager(context: Context) {
             }
         } ?: Log.d("Vibration", "设备不支持振动功能 No vibration capability")
     }
-
     /**
      * 取消当前振动
      * Cancel current vibration

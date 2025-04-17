@@ -2,18 +2,15 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools">
-
     <!-- 语音设置 Category 必须严格闭合 -->
     <PreferenceCategory
         app:title="语音设置">
-
         <SwitchPreference
             app:key="speech_enabled"
             app:title="启用语音反馈"
             android:defaultValue="true"
             app:summaryOn="语音播报已启用"
             app:summaryOff="语音播报已禁用"/>
-
         <ListPreference
             app:key="speech_language"
             app:title="播报语言"
@@ -21,7 +18,6 @@
             app:entryValues="@array/language_values"
             android:defaultValue="zh"
             app:summary="当前语言：%s"/>
-
         <SeekBarPreference
             app:key="speech_rate"
             app:title="语音速度"
@@ -32,18 +28,14 @@
             app:summary="当前速度：%s倍"
             app:seekBarIncrement="1"
             tools:summary="当前速度：1.2倍" />
-
     </PreferenceCategory> <!-- 闭合语音设置 Category -->
-
     <!-- 安全设置 Category -->
     <PreferenceCategory
         app:title="安全设置">
-
         <SwitchPreference
             app:key="vibration_enabled"
             app:title="启用振动反馈"
             android:defaultValue="true"/>
-
         <ListPreference
             app:key="danger_sensitivity"
             app:title="危险检测灵敏度"
@@ -51,23 +43,17 @@
             app:entryValues="@array/sensitivity_values"
             android:defaultValue="medium"
             app:summary="当前灵敏度：%s"/>
-
     </PreferenceCategory> <!-- 闭合安全设置 Category -->
-
     <!-- 高级设置 Category -->
     <PreferenceCategory
         app:title="高级">
-
         <Preference
             app:title="语音引擎设置"
             app:summary="配置TTS参数"/>
-
         <SwitchPreference
             app:key="batch_processing"
             app:title="启用批处理模式"
             android:defaultValue="true"
             app:summary="提升检测性能"/>
-
     </PreferenceCategory> <!-- 闭合高级设置 Category -->
-
 </PreferenceScreen>

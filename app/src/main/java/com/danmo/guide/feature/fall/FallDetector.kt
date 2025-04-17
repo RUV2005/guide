@@ -1,5 +1,4 @@
 package com.danmo.guide.feature.fall
-
 import android.Manifest
 import android.app.AlertDialog
 import android.content.Context
@@ -26,27 +25,22 @@ import com.amap.api.location.AMapLocationClient
 import com.danmo.guide.feature.location.LocationManager
 import kotlin.math.abs
 import kotlin.math.sqrt
-
 class FallDetector(
 var locationManager: LocationManager,
 private val context: Context,
 private val weatherCallback: WeatherCallback, // 添加回调
 private val sosNumber: String = "123456789000000"
 ) : SensorEventListener, LocationManager.LocationCallback { // 添加接口实现
-
     interface EmergencyCallback {
         fun onEmergencyDetected()
     }
-
     fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String) {
         weatherCallback.getWeatherAndAnnounce(lat, lon, cityName)
     }
-
     interface WeatherCallback {
         fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String)
         fun speakWeather(message: String)
     }
-
     // 状态管理
     companion object {
         @JvmField
@@ -60,36 +54,29 @@ private val sosNumber: String = "123456789000000"
         internal var fallConfirmationCount = 0 // 新增确认计数器
         internal const val MAX_CONFIRMATION_COUNT = 3 // 新增最大确认次数
     }
-
     // TTS 服务
     var ttsService: TtsService? = null
     set(value) {
         field = value
         Log.d("com.danmo.guide.feature.fall.FallDetector", "TTS service set")
     }
-
     private var isServiceBound = false
-
     // 初始化
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
     private var emergencyCallback: EmergencyCallback? = null
-
     fun init(context: Context) {
         sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-
         // 绑定 TTS 服务
         Intent(context, TtsService::class.java).also { intent ->
             context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
             isServiceBound = true
         }
     }
-
     fun setEmergencyCallback(callback: EmergencyCallback) {
         this.emergencyCallback = callback
     }
-
     // 传感器监听
     fun startListening() {
         // 在 FallDetector 的 startListening 方法中添加
@@ -104,7 +91,6 @@ private val sosNumber: String = "123456789000000"
             )
         }
     }
-
     fun stopListening() {
         sensorManager.unregisterListener(this)
         if (isServiceBound) {
@@ -113,64 +99,53 @@ private val sosNumber: String = "123456789000000"
         }
         ttsService = null
     }
-
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
             val (x, y, z) = event.values
             val acceleration = sqrt(x * x + y * y + z * z.toDouble()).toFloat()
-
             detectFreeFallPhase(acceleration)
             detectImpactPhase(acceleration)
             detectRecoveryPhase()
         }
     }
-
     private fun detectFreeFallPhase(currentAccel: Float) {
         if (currentAccel < FREE_FALL_THRESHOLD && fallStartTime == 0L) {
             fallStartTime = System.currentTimeMillis()
         }
     }
-
     private var vibrator: Vibrator? = null
     private var vibrationHandler = Handler(Looper.getMainLooper())
-
     @RequiresApi(Build.VERSION_CODES.O)
     private fun startEmergencyVibration() {
         vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         vibrator?.let {
             if (!it.hasVibrator()) return@let
-
             // 立即开始持续震动（500ms 震动 + 500ms 静音）x 10次 = 10秒
             val pattern = longArrayOf(
                 0,  // 立即开始震动
                 500,  // 震动持续时间
                 500   // 间隔时间
             )
-
             val effect = VibrationEffect.createWaveform(
                 pattern,
                 0  // 不重复，执行一次完整模式
             )
-
             // 循环执行震动模式直到10秒结束
             it.vibrate(effect)
             vibrationHandler.postDelayed({
                 it.vibrate(effect)
             }, 1000) // 每隔1秒重复一次模式（500+500=1000ms）
-
             // 10秒后自动停止（匹配对话框超时时间）
             vibrationHandler.postDelayed({
                 stopEmergencyVibration()
             }, 10000)
         }
     }
-
     private fun stopEmergencyVibration() {
         vibrator?.cancel()
         vibrationHandler.removeCallbacksAndMessages(null)
     }
-
     @RequiresApi(Build.VERSION_CODES.O)
     private fun detectImpactPhase(currentAccel: Float) {
         val delta = abs(currentAccel - lastAcceleration)
@@ -186,7 +161,6 @@ private val sosNumber: String = "123456789000000"
         }
         lastAcceleration = currentAccel
     }
-
     private fun detectRecoveryPhase() {
         if (isFallDetected &&
             System.currentTimeMillis() - fallStartTime > RECOVERY_TIME
@@ -194,7 +168,6 @@ private val sosNumber: String = "123456789000000"
             resetFallState()
         }
     }
-
     // 紧急处理
     @RequiresApi(Build.VERSION_CODES.O)
     fun triggerFallDetection() {
@@ -204,12 +177,10 @@ private val sosNumber: String = "123456789000000"
             speak("监测到手机跌落，您疑似跌倒，是否需要帮助？十秒内无操作将开启紧急呼叫")
             showToast("监测到手机跌落，您疑似跌倒，是否需要帮助？十秒内无操作将开启紧急呼叫")
             showFallConfirmationDialog()
-
             // 修正这里：传递 FallDetector 作为回调
             locationManager.startLocation(this) // 现在 this 实现了 LocationCallback
         }
     }
-
     // 新增位置回调方法实现
     override fun onLocationSuccess(location: AMapLocation?, isWeatherButton: Boolean) {
         location?.let {
@@ -218,14 +189,11 @@ private val sosNumber: String = "123456789000000"
             }
         }
     }
-
     override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
         // 处理定位失败逻辑
         Log.e("FallDetector", "定位失败：$errorCode - $errorInfo")
     }
-
     fun isFallDetected() = isFallDetected
-
     fun triggerEmergencyCall() {
         if (checkCallPermission()) {
             startEmergencyCall()
@@ -233,7 +201,6 @@ private val sosNumber: String = "123456789000000"
             showPermissionWarning()
         }
     }
-
     private fun startEmergencyCall() {
         (context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager)?.let {
             if (it.callState == TelephonyManager.CALL_STATE_IDLE) {
@@ -246,46 +213,38 @@ private val sosNumber: String = "123456789000000"
             }
         }
     }
-
     // 工具方法
     fun resetFallState() {
         fallStartTime = 0L
         isFallDetected = false
         fallConfirmationCount = 0 // 重置确认计数
     }
-
     private fun checkCallPermission(): Boolean {
         return ActivityCompat.checkSelfPermission(
             context,
             Manifest.permission.CALL_PHONE
         ) == PackageManager.PERMISSION_GRANTED
     }
-
     private fun showPermissionWarning() {
         Toast.makeText(context, "需要电话权限才能自动呼叫", Toast.LENGTH_LONG).show()
     }
-
     private fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
-
     private fun speak(message: String) {
         ttsService?.speak(message)
     }
-
     private val serviceConnection = object : android.content.ServiceConnection {
         override fun onServiceConnected(className: android.content.ComponentName, service: IBinder) {
             val binder = service as TtsService.TtsBinder
             ttsService = binder.getService()
             Log.d("com.danmo.guide.feature.fall.FallDetector", "TTS service connected")
         }
-
         override fun onServiceDisconnected(arg0: android.content.ComponentName) {
             ttsService = null
             Log.d("com.danmo.guide.feature.fall.FallDetector", "TTS service disconnected")
         }
     }
-
     private fun showFallConfirmationDialog() {
         // 创建并显示确认对话框
         val builder = AlertDialog.Builder(context)
@@ -305,7 +264,6 @@ private val sosNumber: String = "123456789000000"
         builder.setCancelable(false) // 禁止点击外部取消对话框
         val dialog = builder.create()
         dialog.show()
-
         // 添加倒计时逻辑
         val handler = Handler()
         val runnable = Runnable {
@@ -316,10 +274,8 @@ private val sosNumber: String = "123456789000000"
                 dialog.dismiss()
             }
         }
-
         // 10秒后执行自动触发逻辑
         handler.postDelayed(runnable, 10000)
     }
-
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 }

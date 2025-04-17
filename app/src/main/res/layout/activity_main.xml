@@ -5,17 +5,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     tools:context=".ui.main.MainActivity">
-
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-
     <com.danmo.guide.ui.components.OverlayView
         android:id="@+id/overlayView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
@@ -26,7 +23,6 @@
         android:textColor="#FFFFFF"
         android:textSize="16sp"
         android:contentDescription="@string/status_text_content_description" />
-
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_settings"
         android:layout_width="wrap_content"
@@ -37,7 +33,6 @@
         android:src="@drawable/ic_settings"
         app:backgroundTint="@color/white"
         app:elevation="8dp" />
-
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_location"
         android:layout_width="wrap_content"
@@ -58,4 +53,14 @@
         android:src="@drawable/weather"
         app:backgroundTint="@color/white"
         app:elevation="8dp" />
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_voice"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_margin="16dp"
+        android:contentDescription="@string/voice_control"
+        android:src="@drawable/ic_mic"
+        app:backgroundTint="@color/white"
+        app:elevation="8dp"/>
 </FrameLayout>

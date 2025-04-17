@@ -25,4 +25,5 @@
     <string name="default_changelog">常规功能优化和问题修复</string>
     <!-- res/values/strings.xml -->
     <string name="version_format_error">版本格式异常，请联系管理员</string>
+    <string name="voice_control">语音控制</string>
 </resources>

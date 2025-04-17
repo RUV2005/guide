@@ -1,5 +1,4 @@
 package com.danmo.guide.feature.weather
-
 import android.content.Context
 import android.util.Log
 import com.danmo.guide.BuildConfig
@@ -14,7 +13,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
-
 class WeatherManager(private val context: Context) {
     companion object {
         // 城市名称转换方法（不再使用映射表）
@@ -22,14 +20,11 @@ class WeatherManager(private val context: Context) {
             return englishName ?: "未知地区"
         }
     }
-
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
-
     private val gson = Gson()
-
     // 获取天气数据
     suspend fun getWeather(lat: Double, lon: Double): WeatherData? {
         var response: Response? = null
@@ -37,12 +32,9 @@ class WeatherManager(private val context: Context) {
             try {
                 val apiKey = BuildConfig.OPENWEATHER_API_KEY
                 val url = "https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lon&appid=$apiKey&units=metric&lang=zh_cn"
-
                 Log.d("Weather", "请求天气数据的 URL: $url")
-
                 val request = Request.Builder().url(url).build()
                 response = client.newCall(request).execute()
-
                 if (response!!.isSuccessful) {
                     response!!.body?.string()?.let { json ->
                         Log.d("Weather", "天气数据响应: $json")
@@ -58,7 +50,6 @@ class WeatherManager(private val context: Context) {
             }
         }
     }
-
     fun generateSpeechText(weather: WeatherData, cityName: String, time: String? = null): String {
         return buildString {
             try {
@@ -70,9 +61,7 @@ class WeatherManager(private val context: Context) {
                 val feelsLike = weather.main?.feelsLike?.toInt() ?: 999
                 val weatherDesc = weather.weather?.firstOrNull()?.description ?: ""
                 val windSpeed = weather.wind?.speed?.toInt() ?: 0
-
                 Log.d("Weather", "生成播报文本: 城市=$cityName, 温度=$temp, 天气描述=$weatherDesc")
-
                 append("亲爱的先行体验官，")
                 // 智能时间问候
                 val hourPart = currentTime.split(":").getOrNull(0)?.toIntOrNull()
@@ -89,10 +78,8 @@ class WeatherManager(private val context: Context) {
                 } else {
                     append("您好")
                 }
-
                 // 城市播报
                 append("您目前位于$cityName,现在")
-
                 // 温度播报
                 when {
                     temp == 999 -> append("暂时获取不到温度数据哦")
@@ -102,7 +89,6 @@ class WeatherManager(private val context: Context) {
                     temp in 21..28 -> append("${temp}度，穿短袖就行啦")
                     temp > 28 -> append("${temp}度，有点热，注意防暑哦")
                 }
-
                 // 天气现象播报
                 when {
                     "雨" in weatherDesc -> append("，外面在下雨哦，记得带伞")
@@ -112,7 +98,6 @@ class WeatherManager(private val context: Context) {
                     "云" in weatherDesc -> append("，有点云，天气不错呀")
                     "雾" in weatherDesc -> append("，外面有雾，出行要注意安全哦")
                 }
-
                 // 智能生活建议
                 when {
                     "雨" in weatherDesc -> append("，出门一定要记得带伞哦")
@@ -120,7 +105,6 @@ class WeatherManager(private val context: Context) {
                     temp > 30 && "晴" in weatherDesc -> append("，天气热，记得涂防晒霜哦")
                     windSpeed > 5 -> append("，风大，出门戴好口罩哦")
                 }
-
             } catch (e: Exception) {
                 Log.e("Weather", "生成语音文本失败", e)
                 "天气小助手正在努力更新数据，稍后再来问我吧～"
@@ -132,7 +116,6 @@ class WeatherManager(private val context: Context) {
                 .replace("！。", "！")
         }
     }
-
     // 数据类
     data class WeatherData(
         var name: String?,      // 城市名称（改为 var 以便修改）
@@ -146,11 +129,9 @@ class WeatherManager(private val context: Context) {
             val feelsLike: Float?,
             val humidity: Int?
         )
-
         data class Weather(
             val description: String?
         )
-
         data class Wind(
             val speed: Float?
         )

@@ -1,6 +1,5 @@
 // TtsService.kt
 package com.danmo.guide.feature.fall
-
 import android.app.Service
 import android.content.Intent
 import android.os.Binder
@@ -10,27 +9,21 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
-
 class TtsService : Service(), TextToSpeech.OnInitListener {
-
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
     private val speechQueue = LinkedBlockingQueue<Pair<String, Boolean>>() // Pair<text, immediate>
     private var currentUtteranceId: String? = null
-
     inner class TtsBinder : Binder() {
         fun getService(): TtsService = this@TtsService
     }
-
     override fun onBind(intent: Intent): IBinder = TtsBinder()
-
     override fun onCreate() {
         super.onCreate()
         Log.d("TtsService", "Service created")
         tts = TextToSpeech(this, this)
         setupUtteranceListener()
     }
-
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             val result = tts.setLanguage(Locale.CHINA)
@@ -44,28 +37,23 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
             Log.e("TtsService", "TTS initialization failed")
         }
     }
-
     private fun setupUtteranceListener() {
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
                 currentUtteranceId = utteranceId
             }
-
             override fun onDone(utteranceId: String?) {
                 currentUtteranceId = null
                 processNextInQueue()
             }
-
             override fun onError(utteranceId: String?) {
                 currentUtteranceId = null
                 processNextInQueue()
             }
         })
     }
-
     fun speak(text: String, immediate: Boolean = false) {
         if (!isTtsReady) return
-
         if (immediate) {
             speechQueue.clear()
             speechQueue.add(Pair(text, true))
@@ -73,25 +61,19 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         } else {
             speechQueue.add(Pair(text, false))
         }
-
         if (currentUtteranceId == null) {
             processNextInQueue()
         }
     }
-
     fun processNextInQueue() {
         if (speechQueue.isEmpty() || !isTtsReady) return
-
         val (nextText, isImmediate) = speechQueue.poll()
         val utteranceId = UUID.randomUUID().toString()
-
         tts.speak(nextText, TextToSpeech.QUEUE_ADD, null, utteranceId)
     }
-
     private fun stopCurrent() {
         tts.stop()
     }
-
     override fun onDestroy() {
         super.onDestroy()
         Log.d("TtsService", "Service destroyed")

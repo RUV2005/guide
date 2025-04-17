@@ -1,5 +1,4 @@
 package com.danmo.guide.feature.location
-
 import android.Manifest
 import android.app.Activity
 import android.content.Context
@@ -11,19 +10,16 @@ import com.amap.api.location.AMapLocationClientOption
 import com.amap.api.location.AMapLocationListener
 import java.lang.ref.WeakReference
 import kotlin.concurrent.Volatile
-
 class LocationManager private constructor() : AMapLocationListener {
     private var activityRef: WeakReference<Activity>? = null
     private var locationClient: AMapLocationClient? = null
     private var locationOption: AMapLocationClientOption? = null
     var callback: LocationCallback? = null
     private var isWeatherButton = false // 添加一个布尔变量来区分按钮来源
-
     fun initialize(activity: Activity) {
         this.activityRef = WeakReference(activity)
         initLocationSettings()
     }
-
     fun startLocation(callback: LocationCallback, isWeatherButton: Boolean = false) {
         this.callback = callback
         this.isWeatherButton = isWeatherButton
@@ -31,11 +27,9 @@ class LocationManager private constructor() : AMapLocationListener {
             startLocationService()
         }
     }
-
     fun stopLocation() {
         locationClient?.stopLocation()
     }
-
     fun destroy() {
         if (locationClient != null) {
             locationClient!!.onDestroy()
@@ -43,28 +37,23 @@ class LocationManager private constructor() : AMapLocationListener {
         }
         activityRef = null
     }
-
     private fun initLocationSettings() {
         try {
             val context = safeContext ?: return
-
             locationClient = AMapLocationClient(context)
             locationOption = AMapLocationClientOption()
-
             // 配置定位参数
             locationOption!!.setLocationMode(AMapLocationClientOption.AMapLocationMode.Hight_Accuracy)
             locationOption!!.setOnceLocation(true)
             locationOption!!.setNeedAddress(true)
             locationOption!!.setHttpTimeOut(15000)
             locationOption!!.setLocationCacheEnable(false)
-
             locationClient!!.setLocationOption(locationOption)
             locationClient!!.setLocationListener(this)
         } catch (e: Exception) {
             notifyError(-1, "定位初始化失败: " + e.message)
         }
     }
-
     private fun startLocationService() {
         if (locationClient != null) {
             try {
@@ -74,10 +63,8 @@ class LocationManager private constructor() : AMapLocationListener {
             }
         }
     }
-
     private fun checkPermissions(): Boolean {
         val activity = safeActivity ?: return false
-
         val needRequest: MutableList<String> = ArrayList()
         for (perm in REQUIRED_PERMISSIONS) {
             if (ActivityCompat.checkSelfPermission(activity, perm)
@@ -86,7 +73,6 @@ class LocationManager private constructor() : AMapLocationListener {
                 needRequest.add(perm)
             }
         }
-
         if (!needRequest.isEmpty()) {
             ActivityCompat.requestPermissions(
                 activity,
@@ -97,7 +83,6 @@ class LocationManager private constructor() : AMapLocationListener {
         }
         return true
     }
-
     fun handlePermissionsResult(
         requestCode: Int,
         grantResults: IntArray
@@ -117,7 +102,6 @@ class LocationManager private constructor() : AMapLocationListener {
             }
         }
     }
-
     override fun onLocationChanged(aMapLocation: AMapLocation?) {
         if (callback != null) {
             if (aMapLocation != null) {
@@ -134,7 +118,6 @@ class LocationManager private constructor() : AMapLocationListener {
             }
         }
     }
-
     private fun notifySuccess(location: AMapLocation?) {
         val activity = safeActivity
         activity?.runOnUiThread {
@@ -143,7 +126,6 @@ class LocationManager private constructor() : AMapLocationListener {
             }
         }
     }
-
     private fun notifyError(code: Int, msg: String) {
         val activity = safeActivity
         activity?.runOnUiThread {
@@ -152,7 +134,6 @@ class LocationManager private constructor() : AMapLocationListener {
             }
         }
     }
-
     private fun getErrorInfo(errorCode: Int): String {
         return when (errorCode) {
             1 -> "一些重要参数为空"
@@ -171,21 +152,17 @@ class LocationManager private constructor() : AMapLocationListener {
             else -> "未知错误"
         }
     }
-
     private val safeActivity: Activity?
         get() = if ((activityRef != null)) activityRef!!.get() else null
-
     private val safeContext: Context?
         get() {
             val activity = safeActivity
             return if ((activity != null)) activity.applicationContext else null
         }
-
     interface LocationCallback {
         fun onLocationSuccess(location: AMapLocation?, isWeatherButton: Boolean)
         fun onLocationFailure(errorCode: Int, errorInfo: String?)
     }
-
     companion object {
         @Volatile
         var instance: LocationManager? = null
@@ -200,7 +177,6 @@ class LocationManager private constructor() : AMapLocationListener {
                 return field
             }
             private set
-
         private const val REQUEST_CODE_PERMISSION = 1001
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,

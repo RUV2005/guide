@@ -1,5 +1,4 @@
 package com.danmo.guide.feature.camera
-
 import android.content.Context
 import android.util.Log
 import androidx.camera.core.CameraControl
@@ -11,7 +10,6 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import java.util.concurrent.Executor
-
 /**
  * 相机管理类，处理相机初始化、预览和闪光灯控制
  * Camera manager class handling camera initialization, preview and torch control
@@ -23,7 +21,6 @@ class CameraManager(
 ) {
     private var cameraControl: CameraControl? = null  // 相机控制接口 / Camera control interface
     private var isTorchActive = false    // 闪光灯状态标志 / Torch status flag
-
     /**
      * 初始化相机配置并启动预览
      * Initialize camera configuration and start preview
@@ -31,23 +28,19 @@ class CameraManager(
      */
     fun initializeCamera(surfaceProvider: Preview.SurfaceProvider) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-
         cameraProviderFuture.addListener({
             try {
                 // 获取相机提供器实例 / Get camera provider instance
                 val cameraProvider = cameraProviderFuture.get()
-
                 // 配置预览用例 / Configure preview use case
                 val preview = Preview.Builder().build().apply {
                     setSurfaceProvider(surfaceProvider)
                 }
-
                 // 配置图像分析用例 / Configure image analysis use case
                 val imageAnalysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST) // 只保留最新帧 / Keep only latest frame
                     .build()
                     .also { it.setAnalyzer(executor, analyzer) }
-
                 // 绑定生命周期并启动相机 / Bind lifecycle and start camera
                 val camera = cameraProvider.bindToLifecycle(
                     context as LifecycleOwner,
@@ -55,7 +48,6 @@ class CameraManager(
                     preview,
                     imageAnalysis
                 )
-
                 // 保存相机控制实例 / Save camera control instance
                 cameraControl = camera.cameraControl
             } catch (e: Exception) {
@@ -63,7 +55,6 @@ class CameraManager(
             }
         }, ContextCompat.getMainExecutor(context)) // 使用主线程执行器 / Use main thread executor
     }
-
     /**
      * 控制闪光灯开关
      * Control torch mode
@@ -79,7 +70,6 @@ class CameraManager(
             onComplete?.invoke()
             return
         }
-
         try {
             // 异步执行闪光灯控制 / Async torch control
             cameraControl?.enableTorch(enabled)?.addListener({

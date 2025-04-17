@@ -5,18 +5,15 @@
         <item>中文</item>
         <item>English</item>
     </string-array>
-
     <string-array name="language_values">
         <item>zh</item>
         <item>en</item>
     </string-array>
-
     <string-array name="sensitivity_levels">
         <item>高</item>
         <item>中</item>
         <item>低</item>
     </string-array>
-
     <string-array name="sensitivity_values">
         <item>high</item>
         <item>medium</item>

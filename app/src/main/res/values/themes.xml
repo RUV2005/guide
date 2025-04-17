@@ -6,10 +6,8 @@
         <item name="colorPrimaryVariant">@color/purple_700</item>
         <item name="colorOnPrimary">@color/white</item>
     </style>
-
     <!-- 主界面主题（继承自AppTheme） -->
     <style name="Theme.Guide" parent="AppTheme"/>
-
     <!-- 闪屏页主题 -->
     <style name="SplashTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@android:color/white</item>

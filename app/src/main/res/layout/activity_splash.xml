@@ -7,7 +7,6 @@
     android:layout_height="match_parent"
     android:background="@android:color/white"
     android:padding="16dp">
-
     <!-- 品牌Logo -->
     <ImageView
         android:id="@+id/iv_logo"
@@ -20,7 +19,6 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_chainStyle="packed"/>
-
     <!-- 核心标语 -->
     <TextView
         android:id="@+id/tv_slogan"
@@ -38,7 +36,6 @@
         app:layout_constraintTop_toBottomOf="@id/iv_logo"
         app:layout_constraintVertical_chainStyle="packed"
         tools:text="代码有温度，给算法赋予心跳。此刻开始，光迹就是你感知世界的第二双眼睛!"/>
-
     <!-- 加载状态容器 -->
     <LinearLayout
         android:id="@+id/loading_container"
@@ -50,7 +47,6 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         android:layout_marginBottom="32dp">
-
         <!-- 进度指示 -->
         <ProgressBar
             android:id="@+id/progress_bar"
@@ -58,7 +54,6 @@
             android:layout_height="24dp"
             android:visibility="visible"
             style="@style/Widget.AppCompat.ProgressBar"/>
-
         <!-- 加载文字 -->
         <TextView
             android:id="@+id/tv_loading"
@@ -70,5 +65,4 @@
             android:layout_marginStart="8dp"
             tools:text="加载中..."/>
     </LinearLayout>
-
 </androidx.constraintlayout.widget.ConstraintLayout>

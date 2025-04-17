@@ -1,5 +1,4 @@
 package com.danmo.guide.feature.feedback
-
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
@@ -10,7 +9,6 @@ import java.util.*
 import java.util.concurrent.*
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
-
 /**
  * 消息队列管理系统，负责语音反馈的优先级排序和防抖处理
  * Message queue management system handling speech feedback prioritization and debouncing
@@ -32,12 +30,10 @@ class MessageQueueManager {
     private val recentMessages = object : ConcurrentHashMap<String, Long>() {
         // 过期条目清理器 / Expired entry cleaner
         private val cleaner = Executors.newSingleThreadScheduledExecutor()
-
         init {
             // 每分钟清理一次过期条目 / Clean expired entries every minute
             cleaner.scheduleWithFixedDelay(::removeExpiredEntries, 1, 1, TimeUnit.MINUTES)
         }
-
         // 清理5分钟前的条目 / Remove entries older than 5 minutes
         private fun removeExpiredEntries() {
             val now = System.currentTimeMillis()
@@ -46,7 +42,6 @@ class MessageQueueManager {
                 .forEach { remove(it) }
         }
     }
-
     /**
      * 语音消息项数据结构
      * Speech message item data structure
@@ -71,35 +66,28 @@ class MessageQueueManager {
         private val ageFactor: Float get() = synchronized(this) {
             1 - (System.currentTimeMillis() - timestamp).coerceAtMost(5000L) / 5000f
         }
-
         // 动态优先级计算（基础优先级 * 时效因子） / Dynamic priority calculation
         val dynamicPriority: Int get() = when (basePriority) {
             MsgPriority.CRITICAL -> (1000 * ageFactor).toInt()  // 紧急消息 / Critical messages
             MsgPriority.HIGH -> (800 * ageFactor).toInt()       // 高优先级 / High priority
             MsgPriority.NORMAL -> (500 * ageFactor).toInt()     // 普通优先级 / Normal priority
         }
-
         // 优先级比较（降序排列） / Priority comparison (descending order)
         override fun compareTo(other: SpeechItem): Int = other.dynamicPriority.compareTo(this.dynamicPriority)
-
         // 相等性判断（基于标签+方向+文本） / Equality check (label + direction + text)
         override fun equals(other: Any?): Boolean = (other as? SpeechItem)?.let {
             label == it.label && direction == it.direction && text == it.text
         } ?: false
-
         // 哈希值计算 / Hash code calculation
         override fun hashCode(): Int = label.hashCode() + 31 * direction.hashCode()
     }
-
     // 消息优先级枚举 / Message priority enumeration
     enum class MsgPriority { CRITICAL, HIGH, NORMAL }
-
     companion object {
         // 单例实例（双重校验锁） / Singleton instance (double-checked locking)
         @SuppressLint("StaticFieldLeak")
         @Volatile
         private var instance: MessageQueueManager? = null
-
         // 获取单例实例 / Get singleton instance
         fun getInstance(context: Context): MessageQueueManager {
             return instance ?: synchronized(this) {
@@ -110,7 +98,6 @@ class MessageQueueManager {
             }
         }
     }
-
     /**
      * 将消息加入队列
      * Enqueue a message
@@ -135,17 +122,14 @@ class MessageQueueManager {
             MsgPriority.HIGH -> 1500       // 高优先级1.5秒 / High: 1.5s
             MsgPriority.NORMAL -> 1000    // 普通优先级1秒 / Normal: 1s
         }
-
         // 检查重复消息 / Check duplicate messages
         if (recentMessages[messageKey]?.let {
                 System.currentTimeMillis() - it < suppressDuration
             } == true) return
-
         queueLock.withLock {
             // 防止重复添加相同消息 / Prevent adding duplicate messages
             if (!speechQueue.any { it.label == label && it.direction == direction && it.text == message }) {
                 recentMessages[messageKey] = System.currentTimeMillis()
-
                 // 创建消息项并加入队列 / Create and enqueue speech item
                 val item = SpeechItem(
                     text = message,
@@ -160,7 +144,6 @@ class MessageQueueManager {
             }
         }
     }
-
     /**
      * 处理队列中的下一条消息
      * Process next message in queue
@@ -193,7 +176,6 @@ class MessageQueueManager {
             }
         }
     }
-
     // 实际处理消息项 / Process individual item
     private fun processItem(
         item: SpeechItem,
@@ -215,7 +197,6 @@ class MessageQueueManager {
             }
         }
     }
-
     // 清空消息队列 / Clear message queue
     fun clearQueue() {
         queueLock.withLock {
@@ -223,7 +204,6 @@ class MessageQueueManager {
             currentSpeechId = null
         }
     }
-
     // 关闭资源 / Shutdown resources
     fun shutdown() {
         executor.shutdown()  // 关闭线程池 / Shutdown thread pool
