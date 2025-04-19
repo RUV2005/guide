@@ -178,7 +178,7 @@ private val sosNumber: String = "123456789000000"
             showToast("监测到手机跌落，您疑似跌倒，是否需要帮助？十秒内无操作将开启紧急呼叫")
             showFallConfirmationDialog()
             // 修正这里：传递 FallDetector 作为回调
-            locationManager.startLocation(this) // 现在 this 实现了 LocationCallback
+            locationManager.startLocation(this@FallDetector, isWeatherButton = false)
         }
     }
     // 新增位置回调方法实现
@@ -186,6 +186,12 @@ private val sosNumber: String = "123456789000000"
         location?.let {
             if (isWeatherButton) {
                 weatherCallback.getWeatherAndAnnounce(it.latitude, it.longitude, it.city)
+            } else {
+                // 紧急情况下播报位置信息
+                val address = it.address ?: "未知位置"
+                val message = "紧急位置：$address，经度${"%.4f".format(it.longitude)}，纬度${"%.4f".format(it.latitude)}"
+                ttsService?.speak(message)
+                Log.d("FallDetector", "位置信息已播报")
             }
         }
     }

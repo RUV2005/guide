@@ -21,6 +21,7 @@ class LocationManager private constructor() : AMapLocationListener {
         initLocationSettings()
     }
     fun startLocation(callback: LocationCallback, isWeatherButton: Boolean = false) {
+        this.isWeatherButton = isWeatherButton
         this.callback = callback
         this.isWeatherButton = isWeatherButton
         if (checkPermissions()) {

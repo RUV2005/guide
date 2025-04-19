@@ -518,18 +518,9 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     override fun onLocationSuccess(location: AMapLocation?, isWeatherButton: Boolean) {
         runOnUiThread {
             location?.let {
-                if (isWeatherButton) {
-                    fallDetector.getWeatherAndAnnounce(it.latitude, it.longitude, it.city)
-                } else {
-                    val ttsMessage = """
-                    当前位置：${it.address}
-                    经度：${it.longitude}
-                    纬度：${it.latitude}
-                """.trimIndent()
-                    ttsService?.speak(ttsMessage) ?: run {
-                        Log.w("TTS", "TTS服务未初始化")
-                        showToast("语音服务不可用")
-                    }
+                if (!isWeatherButton) {
+                    // 仅处理非天气相关的位置更新
+                    binding.statusText.text = "定位成功：${it.address}"
                 }
             }
         }
