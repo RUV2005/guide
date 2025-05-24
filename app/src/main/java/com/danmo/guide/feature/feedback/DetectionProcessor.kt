@@ -43,14 +43,9 @@ class DetectionProcessor {
         private val DANGEROUS_LABELS = setOf("car", "person", "bus", "truck", "motorcycle", "bicycle","traffic light")
         // 最小有效尺寸（屏幕宽高的20%）| Minimum valid object size
         private const val MIN_OBJECT_SIZE = 0.2f
-        // 屏幕区域划分常量（横向）| Screen division constants (horizontal)
-        private const val COLUMN_1 = 0.25f
-        private const val COLUMN_2 = 0.5f
-        private const val COLUMN_3 = 0.75f
-        // 屏幕区域划分常量（纵向）| Screen division constants (vertical)
-        private const val ROW_1 = 0.25f
-        private const val ROW_2 = 0.5f
-        private const val ROW_3 = 0.75f
+        private const val COLUMN_1 = 1f / 3f    // 0.333
+        private const val COLUMN_2 = 2f / 3f    // 0.666
+        private const val ROW_1 = 0.5f          // 上半为远，下半为近
         // 单例相关 | Singleton related
         @SuppressLint("StaticFieldLeak")
         @Volatile
@@ -92,15 +87,12 @@ class DetectionProcessor {
      * 3 - 超近距离（屏幕底部25%）| Very close (bottom 25%)
      */
     private val directionNames = arrayOf(
-        // 列0 | Column 0
-        arrayOf("左后远", "左后方", "左前近", "左前远"),    // Far back-left, Back-left, Close front-left, Far front-left
-        // 列1 | Column 1
-        arrayOf("后偏左", "正后方", "正前方", "前偏左"),    // Back-left, Direct back, Direct front, Front-left
-        // 列2 | Column 2
-        arrayOf("后偏右", "正后方", "正前方", "前偏右"),    // Back-right, Direct back, Direct front, Front-right
-        // 列3 | Column 3
-        arrayOf("右后远", "右后方", "右前近", "右前远")     // Far back-right, Back-right, Close front-right, Far front-right
+        // 远
+        arrayOf("左远侧", "正远方", "右前侧"),
+        // 近
+        arrayOf("左近侧", "正前方", "右近侧")
     )
+
     // 初始化定时批处理任务 | Initialize scheduled batch processing
     init {
         batchProcessor.scheduleWithFixedDelay(
@@ -220,30 +212,25 @@ class DetectionProcessor {
         result: Detection,
         label: String
     ): Quadruple<String, String, MessageQueueManager.MsgPriority, String>? {
-        // 计算方向并过滤远距离 | Calculate direction and filter far objects
         val direction = calculateDirection(result.boundingBox)
-        // 过滤远距离目标的逻辑已注释掉 | Commented out the logic to filter far objects
-        // if (direction.contains("远")) return null  // 移出apply作用域直接判断
-        // 过滤无效标签 | Filter invalid labels
         if (shouldSuppressMessage(label) || label.isEmpty()) return null
-        // 获取或创建目标上下文（用于频率控制）| Get or create object context
         val context = contextMemory.compute(label) { _, v ->
             v?.apply { speedFactor = max(0.5f, speedFactor * 0.9f) } ?: ObjectContext()
         }!!
         return when {
             isCriticalDetection(result) -> Quadruple(
-                generateCriticalAlert(label),
-                "center",
+                generateCriticalAlert(label, direction),
+                direction,
                 MessageQueueManager.MsgPriority.CRITICAL,
                 label
             )
-            shouldReport(context, generateDirectionMessage(label, direction)) -> { // 复用已计算的方向
+            shouldReport(context, generateDirectionMessage(label, direction), direction) -> {
                 context.lastReportTime = System.currentTimeMillis()
                 context.speedFactor = min(2.0f, context.speedFactor * 1.1f)
                 Quadruple(
-                    generateDirectionMessage(label, direction), // 使用已有方向
+                    generateDirectionMessage(label, direction),
                     "general",
-                    getDirectionPriority(direction), // 使用已有方向
+                    getDirectionPriority(direction),
                     label
                 )
             }
@@ -284,11 +271,22 @@ class DetectionProcessor {
      * @param context 目标上下文 | Object context
      * @param newMessage 新消息内容 | New message content
      */
-    private fun shouldReport(context: ObjectContext, newMessage: String): Boolean {
+    private fun shouldReport(
+        context: ObjectContext,
+        newMessage: String,
+        direction: String
+    ): Boolean {
+        // 根据方向判断距离相关的播报间隔
+        val distanceInterval = when {
+            direction.contains("近") -> MIN_REPORT_INTERVAL_MS * 2   // 近距离：延长间隔，减少频率
+            direction.contains("远") -> MIN_REPORT_INTERVAL_MS / 2   // 远距离：缩短间隔，增加频率
+            else -> MIN_REPORT_INTERVAL_MS                           // 其他：标准间隔
+        }
+        // 保留原有紧急/危险消息判断
         val baseInterval = when {
-            newMessage.contains("注意！") -> MIN_REPORT_INTERVAL_MS / 2      // 紧急消息缩短间隔 | Shorten interval for urgent messages
-            newMessage.contains("危险！") -> MIN_REPORT_INTERVAL_MS * 2 / 3  // 危险消息中等间隔 | Medium interval for dangerous messages
-            else -> MIN_REPORT_INTERVAL_MS                                  // 普通消息标准间隔 | Standard interval for normal messages
+            newMessage.contains("注意！") -> distanceInterval / 2      // 紧急消息缩短间隔
+            newMessage.contains("危险！") -> distanceInterval * 2 / 3  // 危险消息中等间隔
+            else -> distanceInterval                                   // 普通消息标准间隔
         }
         return System.currentTimeMillis() - context.lastReportTime > (baseInterval / context.speedFactor).toLong()
     }
@@ -298,50 +296,37 @@ class DetectionProcessor {
      * @return 方向描述字符串 | Direction description string
      */
     private fun calculateDirection(box: RectF): String {
-    // 确保 context 已初始化
-    if (!::context.isInitialized) {
-        // 防御性处理，如果 context 未初始化返回未知
-        return "未知"
-    }
-    // 获取屏幕宽高（像素）
-    val displayMetrics = context.resources.displayMetrics
-    val screenWidth = displayMetrics.widthPixels.toFloat()
-    val screenHeight = displayMetrics.heightPixels.toFloat()
+        if (!::context.isInitialized) {
+            return "未知"
+        }
+        val displayMetrics = context.resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels.toFloat()
+        val screenHeight = displayMetrics.heightPixels.toFloat()
 
-    // 归一化中心点坐标（0~1）
-    val centerX = box.centerX() / screenWidth
-    val centerY = box.centerY() / screenHeight
+        val centerX = box.centerX() / screenWidth
+        val centerY = box.centerY() / screenHeight
 
-    // 可选：调试日志
-    // Log.d("DetectionProcessor", "Normalized centerX=$centerX, centerY=$centerY")
-
-    // 横向分区
-    val col = when {
-        centerX < COLUMN_1 -> 0
-        centerX < COLUMN_2 -> 1
-        centerX < COLUMN_3 -> 2
-        else -> 3
-    }
-    // 纵向分区
-    val row = when {
-        centerY < ROW_1 -> 0
-        centerY < ROW_2 -> 1
-        centerY < ROW_3 -> 2
-        else -> 3
-    }
-    return directionNames[col][row]
+        // 横向分区：左中右
+        val col = when {
+            centerX < COLUMN_1 -> 0
+            centerX < COLUMN_2 -> 1
+            else -> 2
+        }
+        // 纵向分区：远近
+        val row = if (centerY < ROW_1) 0 else 1
+        return directionNames[row][col]
     }
     /**
      * 生成关键警报消息 | Generate critical alert message
      * @param label 目标标签 | Object label
      */
-    private fun generateCriticalAlert(label: String): String {
+    private fun generateCriticalAlert(label: String, direction: String): String {
         val templates = listOf(
-            "注意！正前方发现$label",   // Warning! $label ahead
-            "危险！$label,接近中",     // Danger! $label approaching
-            "紧急！$label,靠近"        // Emergency! $label nearby
+            "注意！${direction}发现$label",
+            "危险！$label,正处于${direction}",
+            "紧急！$label,靠近${direction}"
         )
-        return templates.random()  // 随机选择模板增加多样性 | Random selection for variety
+        return templates.random()
     }
     /**
      * 根据方向确定消息优先级 | Determine message priority by direction
@@ -362,20 +347,12 @@ class DetectionProcessor {
      */
     private fun generateDirectionMessage(label: String, direction: String): String {
         val templates = mapOf(
-            "左后远" to listOf("左后方远距离检测到$label", "$label,在左后方较远位置"),  // Far back-left detections
-            "左后方" to listOf("左后方有$label", "注意左后方的$label"),               // Back-left presence
-            "左前近" to listOf("左前方近距离发现$label", "注意！左前方有$label,接近"),   // Close front-left
-            "左前远" to listOf("左前方远距离存在$label", "$label,在左前方较远位置"),    // Far front-left
-            "后偏左" to listOf("左后方检测到$label", "$label,位于您的左后方"),        // Back-left detection
-            "正后方" to listOf("正后方发现$label", "请注意身后有$label"),              // Direct back detection
-            "正前方" to listOf("正前方有$label", "检测到正前方存在$label"),            // Direct front detection
-            "前偏左" to listOf("左前方检测到$label", "$label,位于您的前方左侧"),       // Front-left detection
-            "后偏右" to listOf("右后方检测到$label", "$label,位于您的右后方"),        // Back-right detection
-            "前偏右" to listOf("右前方检测到$label", "$label,位于您的前方右侧"),       // Front-right detection
-            "右后远" to listOf("右后方远距离检测到$label", "$label,在右后方较远位置"),  // Far back-right
-            "右后方" to listOf("右后方有$label", "注意右后方的$label"),               // Back-right presence
-            "右前近" to listOf("右前方近距离发现$label", "注意！右前方有$label,接近"),   // Close front-right
-            "右前远" to listOf("右前方远距离存在$label", "$label,在右前方较远位置")    // Far front-right
+            "左远侧" to listOf("左远侧发现$label", "$label,出现在左远侧"),
+            "正远方" to listOf("正远方有$label", "$label,在正远方"),
+            "右前侧" to listOf("右前侧出现$label", "$label,在右前侧"),
+            "左近侧" to listOf("左近侧有$label，注意避让", "注意左近侧的$label"),
+            "正前方" to listOf("正前方有$label", "注意正前方的$label"),
+            "右近侧" to listOf("右近侧有$label，注意避让", "注意右近侧的$label")
         )
         return templates[direction]?.random() ?: "检测到$label"  // 默认消息 | Default message
     }
