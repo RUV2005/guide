@@ -298,23 +298,38 @@ class DetectionProcessor {
      * @return 方向描述字符串 | Direction description string
      */
     private fun calculateDirection(box: RectF): String {
-        val centerX = box.centerX()
-        val centerY = box.centerY()
-        // 列判断（横向分区）| Column determination (horizontal)
-        val col = when {
-            centerX < COLUMN_1 -> 0    // 左半区 | Left zone
-            centerX < COLUMN_2 -> 1    // 中左区 | Middle-left
-            centerX < COLUMN_3 -> 2    // 中右区 | Middle-right
-            else -> 3                  // 右半区 | Right zone
-        }
-        // 行判断（纵向分区）| Row determination (vertical)
-        val row = when {
-            centerY < ROW_1 -> 0       // 远距离 | Far
-            centerY < ROW_2 -> 1       // 中距离 | Medium
-            centerY < ROW_3 -> 2       // 近距离 | Close
-            else -> 3                  // 超近距离 | Very close
-        }
-        return directionNames[col][row]
+    // 确保 context 已初始化
+    if (!::context.isInitialized) {
+        // 防御性处理，如果 context 未初始化返回未知
+        return "未知"
+    }
+    // 获取屏幕宽高（像素）
+    val displayMetrics = context.resources.displayMetrics
+    val screenWidth = displayMetrics.widthPixels.toFloat()
+    val screenHeight = displayMetrics.heightPixels.toFloat()
+
+    // 归一化中心点坐标（0~1）
+    val centerX = box.centerX() / screenWidth
+    val centerY = box.centerY() / screenHeight
+
+    // 可选：调试日志
+    // Log.d("DetectionProcessor", "Normalized centerX=$centerX, centerY=$centerY")
+
+    // 横向分区
+    val col = when {
+        centerX < COLUMN_1 -> 0
+        centerX < COLUMN_2 -> 1
+        centerX < COLUMN_3 -> 2
+        else -> 3
+    }
+    // 纵向分区
+    val row = when {
+        centerY < ROW_1 -> 0
+        centerY < ROW_2 -> 1
+        centerY < ROW_3 -> 2
+        else -> 3
+    }
+    return directionNames[col][row]
     }
     /**
      * 生成关键警报消息 | Generate critical alert message
