@@ -63,6 +63,7 @@ import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import com.danmo.guide.feature.update.VersionComparator
 import kotlin.math.sqrt
 class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     SensorEventListener, LocationManager.LocationCallback, FallDetector.WeatherCallback,
