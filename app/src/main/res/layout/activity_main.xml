@@ -5,19 +5,67 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     tools:context=".ui.main.MainActivity">
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000" />
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+    <!-- 视频流显示视图 -->
+    <ImageView
+        android:id="@+id/stream_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:visibility="gone"
+        android:scaleType="fitCenter"/>
     <com.danmo.guide.ui.components.OverlayView
         android:id="@+id/overlayView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- 连接状态指示 -->
+        <View
+            android:id="@+id/statusIndicator"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:background="@drawable/status_disconnected"
+            android:layout_marginEnd="8dp"/>
+
+        <!-- 连接状态文本 -->
+        <TextView
+            android:id="@+id/Cam_statusText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="未连接"
+            android:textColor="@color/white"
+            android:textSize="14sp"/>
+
+        <!-- 连接时间显示 -->
+        <TextView
+            android:id="@+id/timerText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="连接时间:00:00"
+            android:textColor="@color/teal_200"
+            android:textSize="14sp"/>
+    </LinearLayout>
+
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center"
+        android:layout_gravity="top|center"
         android:background="#80000000"
         android:padding="16dp"
         android:textColor="#FFFFFF"
@@ -48,9 +96,20 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
-        android:layout_margin="16dp"
+        android:layout_marginTop="50dp"
+        android:layout_marginLeft="16dp"
         android:contentDescription="@string/weather"
         android:src="@drawable/weather"
+        app:backgroundTint="@color/white"
+        app:elevation="8dp" />
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fabSwitchCamera"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center"
+        android:layout_margin="16dp"
+        android:contentDescription="@string/camera_switch_button"
+        android:src="@drawable/ic_camera_switch"
         app:backgroundTint="@color/white"
         app:elevation="8dp" />
     <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -58,7 +117,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
-        android:layout_margin="16dp"
+        android:layout_marginTop="50dp"
+        android:layout_marginRight="16dp"
         android:contentDescription="@string/voice_control"
         android:src="@drawable/ic_mic"
         app:backgroundTint="@color/white"

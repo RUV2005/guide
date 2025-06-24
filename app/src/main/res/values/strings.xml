@@ -21,6 +21,7 @@
     <string name="tts_not_ready">语音引擎未就绪</string>
     <string name="weather_failed">获取天气信息失败</string>
     <string name="latest_version">当前已是最新版本</string>
+    <string name="camera_switch_button">切换摄像头</string> <!-- 中文 -->
     <!-- res/values/strings.xml -->
     <string name="default_changelog">常规功能优化和问题修复</string>
     <!-- res/values/strings.xml -->

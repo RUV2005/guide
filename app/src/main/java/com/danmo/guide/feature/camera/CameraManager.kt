@@ -19,7 +19,7 @@ class CameraManager(
     private val executor: Executor,       // 异步操作执行器 / Executor for async operations
     private val analyzer: ImageAnalysis.Analyzer // 图像分析器 / Image analysis processor
 ) {
-    private var cameraControl: CameraControl? = null  // 相机控制接口 / Camera control interface
+    var cameraControl: CameraControl? = null  // 相机控制接口 / Camera control interface
     private var isTorchActive = false    // 闪光灯状态标志 / Torch status flag
     /**
      * 初始化相机配置并启动预览
