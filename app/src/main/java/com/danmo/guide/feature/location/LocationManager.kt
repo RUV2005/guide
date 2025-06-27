@@ -1,36 +1,45 @@
 package com.danmo.guide.feature.location
+
 import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
 import com.amap.api.location.AMapLocationListener
+import kotlinx.coroutines.*
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
 import java.lang.ref.WeakReference
-import kotlin.concurrent.Volatile
+
 class LocationManager private constructor() : AMapLocationListener {
     private var activityRef: WeakReference<Activity>? = null
     private var locationClient: AMapLocationClient? = null
     private var locationOption: AMapLocationClientOption? = null
     var callback: LocationCallback? = null
-    private var isWeatherButton = false // 添加一个布尔变量来区分按钮来源
+    private var isWeatherButton = false // 用于区分按钮来源
+
     fun initialize(activity: Activity) {
         this.activityRef = WeakReference(activity)
         initLocationSettings()
     }
+
     fun startLocation(callback: LocationCallback, isWeatherButton: Boolean = false) {
         this.isWeatherButton = isWeatherButton
         this.callback = callback
-        this.isWeatherButton = isWeatherButton
         if (checkPermissions()) {
             startLocationService()
         }
     }
+
     fun stopLocation() {
         locationClient?.stopLocation()
     }
+
     fun destroy() {
         if (locationClient != null) {
             locationClient!!.onDestroy()
@@ -38,6 +47,7 @@ class LocationManager private constructor() : AMapLocationListener {
         }
         activityRef = null
     }
+
     private fun initLocationSettings() {
         try {
             val context = safeContext ?: return
@@ -55,6 +65,7 @@ class LocationManager private constructor() : AMapLocationListener {
             notifyError(-1, "定位初始化失败: " + e.message)
         }
     }
+
     private fun startLocationService() {
         if (locationClient != null) {
             try {
@@ -64,6 +75,7 @@ class LocationManager private constructor() : AMapLocationListener {
             }
         }
     }
+
     private fun checkPermissions(): Boolean {
         val activity = safeActivity ?: return false
         val needRequest: MutableList<String> = ArrayList()
@@ -74,16 +86,17 @@ class LocationManager private constructor() : AMapLocationListener {
                 needRequest.add(perm)
             }
         }
-        if (!needRequest.isEmpty()) {
+        if (needRequest.isNotEmpty()) {
             ActivityCompat.requestPermissions(
                 activity,
-                needRequest.toTypedArray<String>(),
+                needRequest.toTypedArray(),
                 REQUEST_CODE_PERMISSION
             )
             return false
         }
         return true
     }
+
     fun handlePermissionsResult(
         requestCode: Int,
         grantResults: IntArray
@@ -103,38 +116,62 @@ class LocationManager private constructor() : AMapLocationListener {
             }
         }
     }
+
     override fun onLocationChanged(aMapLocation: AMapLocation?) {
-        if (callback != null) {
-            if (aMapLocation != null) {
-                if (aMapLocation.getErrorCode() === 0) {
+        if (callback == null) return
+        if (aMapLocation != null) {
+            if (aMapLocation.errorCode == 0) {
+                // 自动兜底（如果高德SDK没有返回详细地址，则尝试逆地理API兜底）
+                val hasAddress = !(aMapLocation.address.isNullOrBlank() &&
+                        aMapLocation.district.isNullOrBlank() &&
+                        aMapLocation.city.isNullOrBlank() &&
+                        aMapLocation.street.isNullOrBlank())
+                if (hasAddress) {
                     notifySuccess(aMapLocation)
                 } else {
-                    notifyError(
-                        aMapLocation.getErrorCode(),
-                        getErrorInfo(aMapLocation.getErrorCode())
-                    )
+                    // 兜底：用高德逆地理API获取详细地址
+                    safeActivity?.let { activity ->
+                        // 启动协程（需主工程引入kotlinx-coroutines-android依赖）
+                        CoroutineScope(Dispatchers.Main).launch {
+                            val address = getAddressByLatLng(
+                                aMapLocation.latitude,
+                                aMapLocation.longitude
+                            )
+                            Log.d("定位兜底", "逆地理兜底得到: $address")
+                            // 用一个虚拟的AMapLocation返回
+                            val fallback = AMapLocation(aMapLocation)
+                            fallback.address = address
+                            notifySuccess(fallback)
+                        }
+                    } ?: run {
+                        notifySuccess(aMapLocation)
+                    }
                 }
             } else {
-                notifyError(-3, "定位结果为空")
+                notifyError(
+                    aMapLocation.errorCode,
+                    getErrorInfo(aMapLocation.errorCode)
+                )
             }
+        } else {
+            notifyError(-3, "定位结果为空")
         }
     }
+
     private fun notifySuccess(location: AMapLocation?) {
         val activity = safeActivity
         activity?.runOnUiThread {
-            if (callback != null) {
-                callback!!.onLocationSuccess(location, isWeatherButton) // 传递 isWeatherButton 参数
-            }
+            callback?.onLocationSuccess(location, isWeatherButton)
         }
     }
+
     private fun notifyError(code: Int, msg: String) {
         val activity = safeActivity
         activity?.runOnUiThread {
-            if (callback != null) {
-                callback!!.onLocationFailure(code, msg)
-            }
+            callback?.onLocationFailure(code, msg)
         }
     }
+
     private fun getErrorInfo(errorCode: Int): String {
         return when (errorCode) {
             1 -> "一些重要参数为空"
@@ -153,17 +190,17 @@ class LocationManager private constructor() : AMapLocationListener {
             else -> "未知错误"
         }
     }
+
     private val safeActivity: Activity?
-        get() = if ((activityRef != null)) activityRef!!.get() else null
+        get() = activityRef?.get()
     private val safeContext: Context?
-        get() {
-            val activity = safeActivity
-            return if ((activity != null)) activity.applicationContext else null
-        }
+        get() = safeActivity?.applicationContext
+
     interface LocationCallback {
         fun onLocationSuccess(location: AMapLocation?, isWeatherButton: Boolean)
         fun onLocationFailure(errorCode: Int, errorInfo: String?)
     }
+
     companion object {
         @Volatile
         var instance: LocationManager? = null
@@ -181,8 +218,64 @@ class LocationManager private constructor() : AMapLocationListener {
         private const val REQUEST_CODE_PERMISSION = 1001
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE
+            Manifest.permission.ACCESS_COARSE_LOCATION
         )
+        // 你的高德Web服务Key（必须申请Web服务Key，和Android Key不是同一个）
+        private const val GAODE_WEB_API_KEY = "80a79d5ca70a9f91f9881e74c335bf0b"
+    }
+
+    /**
+     * 通过高德逆地理API获取详细地址信息（兜底逻辑）
+     * 挂起函数，需在协程中调用
+     */
+    private suspend fun getAddressByLatLng(lat: Double, lon: Double): String = withContext(Dispatchers.IO) {
+        try {
+            val url =
+                "https://restapi.amap.com/v3/geocode/regeo?location=$lon,$lat&key=$GAODE_WEB_API_KEY"
+            Log.d("LocationFallbackUtil", "请求高德逆地理API: $url")
+            val request = Request.Builder().url(url).get().build()
+            val client = OkHttpClient()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string()
+                Log.d("LocationFallbackUtil", "高德逆地理API响应: $body")
+                if (response.isSuccessful && body != null) {
+                    val obj = JSONObject(body)
+                    val status = obj.optString("status")
+                    if (status == "1") {
+                        val regeocode = obj.optJSONObject("regeocode")
+                        // 优先用 formatted_address
+                        val formatted = regeocode?.optString("formatted_address")
+                        if (!formatted.isNullOrEmpty()) {
+                            Log.d("LocationFallbackUtil", "逆地理结果: $formatted")
+                            return@withContext formatted
+                        }
+                        // 或拼接 province/city/district/street
+                        val addressComponent = regeocode?.optJSONObject("addressComponent")
+                        val province = addressComponent?.optString("province") ?: ""
+                        val city = addressComponent?.optString("city") ?: ""
+                        val district = addressComponent?.optString("district") ?: ""
+                        val township = addressComponent?.optString("township") ?: ""
+                        val street = addressComponent?.optJSONArray("streetNumber")?.optJSONObject(0)?.optString("street") ?: ""
+                        val fallback = listOf(province, city, district, township, street)
+                            .filter { it.isNotEmpty() }
+                            .joinToString(separator = "")
+                        if (fallback.isNotEmpty()) {
+                            Log.d("LocationFallbackUtil", "逆地理拼接结果: $fallback")
+                            return@withContext fallback
+                        } else {
+                            Log.e("LocationFallbackUtil", "逆地理API没有返回有效地址信息")
+                            return@withContext "未知位置"
+                        }
+                    } else {
+                        Log.e("LocationFallbackUtil", "逆地理API status非1，message: ${obj.optString("info")}")
+                    }
+                } else {
+                    Log.e("LocationFallbackUtil", "逆地理API请求失败: code=${response.code}, body=$body")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("LocationFallbackUtil", "逆地理API异常", e)
+        }
+        "未知位置"
     }
 }

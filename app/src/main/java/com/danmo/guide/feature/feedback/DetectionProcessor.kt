@@ -72,6 +72,15 @@ class DetectionProcessor {
             }
         }
     }
+    // 大区域定义（将6个小区域合并为3个大区域）
+    private val superRegions = mapOf(
+        // 左侧大区（包含左远侧、左近侧）
+        "左侧" to setOf("左远侧", "左近侧"),
+        // 前方大区（包含正远方、正前方）
+        "正前方" to setOf("正远方", "正前方"),
+        // 右侧大区（包含右前侧、右近侧）
+        "右侧" to setOf("右前侧", "右近侧")
+    )
     /**
      * 4x4方向矩阵（基于屏幕区域划分）| 4x4 direction matrix (based on screen zones)
      * 列索引：| Column indexes:
@@ -118,54 +127,50 @@ class DetectionProcessor {
     private fun processBatch() {
         try {
             val batch = mutableListOf<Detection>().apply {
-                // 清空队列并收集所有待处理结果 | Drain queue and collect all pending results
                 while (pendingDetections.isNotEmpty()) pendingDetections.poll()?.let { add(it) }
             }
-            // 合并重叠检测后逐个处理 | Process merged detections
-            mergeDetections(batch).forEach {
-                try {
-                    processSingleDetection(it)
-                } catch (e: Exception) {
-                    Log.e("ProcessBatch", "处理单个检测失败 | Failed to process single detection", e)
+
+            // 步骤1: 处理紧急目标（单独播报）
+            val (criticalDetections, nonCriticalDetections) = batch.partition { isCriticalDetection(it) }
+            criticalDetections.forEach { processSingleDetection(it) }
+
+            // 步骤2: 非紧急目标按大区域合并
+            if (nonCriticalDetections.isNotEmpty()) {
+                val mergedMessages = mergeRegionDetections(nonCriticalDetections)
+                mergedMessages.forEach { (superRegion, messages) ->
+                    processSuperRegion(superRegion, messages)
                 }
             }
         } catch (e: Exception) {
-            Log.e("ProcessBatch", "批处理失败 | Batch processing failed", e)
+            Log.e("ProcessBatch", "批处理失败", e)
         }
     }
-    /**
-     * 合并重叠检测框算法 | Algorithm for merging overlapping detections
-     * 策略：| Strategy:
-     * 1. 按检测框面积从大到小排序 | Sort by bounding box area (descending)
-     * 2. 重叠率超过60%且同类目标则合并 | Merge if overlap >60% and same label
-     * @return 合并后的检测结果列表 | Merged detection list
-     */
-    private fun mergeDetections(detections: List<Detection>): List<Detection> {
-        /**
-         * 计算两个矩形的重叠比例 | Calculate overlap ratio between two rectangles
-         * @param a 第一个矩形 | First rectangle
-         * @param b 第二个矩形 | Second rectangle
-         * @return 重叠比例（0.0-1.0）| Overlap ratio (0.0-1.0)
-         */
-        fun overlapRatio(a: RectF, b: RectF): Float {
-            val interWidth = max(0f, min(a.right, b.right) - max(a.left, b.left))
-            val interHeight = max(0f, min(a.bottom, b.bottom) - max(a.top, b.top))
-            val interArea = interWidth * interHeight
-            val unionArea = a.width() * a.height() + b.width() * b.height() - interArea
-            return if (unionArea > 0) interArea / unionArea else 0f
-        }
-        val merged = mutableListOf<Detection>()
-        // 按检测框面积降序处理 | Process in descending order of bounding box area
-        detections.sortedByDescending { it.boundingBox.width() }.forEach { detection ->
-            // 检查是否与已合并目标重叠 | Check overlap with existing detections
-            if (merged.none { existing ->
-                    overlapRatio(existing.boundingBox, detection.boundingBox) > 0.6 &&
-                            existing.categories.any { it.label == detection.categories.first().label }
-                }) {
-                merged.add(detection)
+
+    // 区域合并核心方法
+    private fun mergeRegionDetections(detections: List<Detection>): Map<String, MutableList<Pair<String, RectF>>> {
+        val regionMap = mutableMapOf<String, MutableList<Pair<String, RectF>>>()
+
+        detections.forEach { detection ->
+            detection.categories.firstOrNull()?.let { category ->
+                // 添加置信度过滤
+                if (category.score < confidenceThreshold) return@let
+
+                val originalLabel = category.label.lowercase()
+                // 添加危险目标过滤
+                if (originalLabel !in DANGEROUS_LABELS) return@let
+
+                val label = getChineseLabel(originalLabel)
+                val direction = calculateDirection(detection.boundingBox)
+
+                // 查找所属大区域
+                superRegions.forEach { (superRegion, subRegions) ->
+                    if (subRegions.contains(direction)) {
+                        regionMap.getOrPut(superRegion) { mutableListOf() }.add(label to detection.boundingBox)
+                    }
+                }
             }
         }
-        return merged
+        return regionMap
     }
     /**
      * 处理单个检测结果 | Process single detection result
@@ -274,21 +279,64 @@ class DetectionProcessor {
     private fun shouldReport(
         context: ObjectContext,
         newMessage: String,
-        direction: String
+        regionKey: String
     ): Boolean {
-        // 根据方向判断距离相关的播报间隔
-        val distanceInterval = when {
-            direction.contains("近") -> MIN_REPORT_INTERVAL_MS * 2   // 近距离：延长间隔，减少频率
-            direction.contains("远") -> MIN_REPORT_INTERVAL_MS / 2   // 远距离：缩短间隔，增加频率
-            else -> MIN_REPORT_INTERVAL_MS                           // 其他：标准间隔
+        // 使用整数运算替代浮点数运算
+        val baseInterval = when (regionKey) {
+            "正前方" -> MIN_REPORT_INTERVAL_MS / 2   // 整数除法
+            "左侧", "右侧" -> (MIN_REPORT_INTERVAL_MS * 3) / 2  // 先乘后除保持整数
+            else -> MIN_REPORT_INTERVAL_MS
         }
-        // 保留原有紧急/危险消息判断
-        val baseInterval = when {
-            newMessage.contains("注意！") -> distanceInterval / 2      // 紧急消息缩短间隔
-            newMessage.contains("危险！") -> distanceInterval * 2 / 3  // 危险消息中等间隔
-            else -> distanceInterval                                   // 普通消息标准间隔
-        }
+
         return System.currentTimeMillis() - context.lastReportTime > (baseInterval / context.speedFactor).toLong()
+    }
+    // 构建大区域消息
+    private fun buildSuperRegionMessage(superRegion: String, labels: Set<String>): String {
+        return when {
+            labels.size == 1 -> "$superRegion,有${labels.first()}"
+            labels.size == 2 -> "$superRegion,有${labels.joinToString("和")}"
+            else -> {
+                val mainLabels = labels.take(2)
+                "$superRegion,有${mainLabels.joinToString("、")}等${labels.size}种目标"
+            }
+        }
+    }
+    // 处理大区域内的多个检测结果
+    private fun processSuperRegion(
+        superRegion: String,
+        detections: List<Pair<String, RectF>>
+    ) {
+        // 合并相同标签的目标
+        val labelGroups = detections.groupBy { it.first }
+
+        // 生成合并消息
+        val message = buildSuperRegionMessage(superRegion, labelGroups.keys)
+        val priority = getSuperRegionPriority(superRegion)
+
+        // 检查是否应该报告
+        val context = contextMemory.compute(superRegion) { _, v -> v ?: ObjectContext() }!!
+        if (shouldReport(context, message, superRegion)) {
+            context.lastReportTime = System.currentTimeMillis()
+            messageQueueManager.enqueueMessage(
+                message = message,
+                direction = superRegion,
+                priority = priority,
+                label = "区域合并",
+                vibrationPattern = when (priority) {
+                    MessageQueueManager.MsgPriority.CRITICAL -> longArrayOf(0, 500, 200, 300)
+                    MessageQueueManager.MsgPriority.HIGH -> longArrayOf(0, 300, 100, 200)
+                    else -> longArrayOf(0, 200)
+                }
+            )
+        }
+    }
+    // 大区域优先级
+    private fun getSuperRegionPriority(superRegion: String): MessageQueueManager.MsgPriority {
+        return when (superRegion) {
+            "正前方" -> MessageQueueManager.MsgPriority.CRITICAL
+            "左侧", "右侧" -> MessageQueueManager.MsgPriority.HIGH
+            else -> MessageQueueManager.MsgPriority.NORMAL
+        }
     }
     /**
      * 计算目标方向 | Calculate object direction
@@ -368,7 +416,7 @@ class DetectionProcessor {
             "truck" -> "卡车"
             "motorcycle" -> "摩托车"
             "bicycle" -> "自行车"
-            else -> "unknown"  // 非关键目标返回unknown | Return unknown for others
+            else -> "非关键预设障碍物"  // 非关键目标返回unknown | Return unknown for others
         }
     }
     /**

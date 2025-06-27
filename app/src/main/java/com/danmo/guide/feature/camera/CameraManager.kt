@@ -81,4 +81,17 @@ class CameraManager(
             Log.e("CameraManager", "闪光灯控制失败 Torch control failed", e)
         }
     }
+
+    fun shutdown() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        if (cameraProviderFuture.isDone) {
+            try {
+                val cameraProvider = cameraProviderFuture.get()
+                cameraProvider.unbindAll() // 解绑所有用例
+            } catch (e: Exception) {
+                Log.e("CameraManager", "释放相机失败", e)
+            }
+        }
+        cameraControl = null
+    }
 }

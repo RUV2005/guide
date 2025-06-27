@@ -116,6 +116,9 @@
             android:label="@string/settings"
             android:parentActivityName=".ui.main.MainActivity">
         </activity>
+        <activity
+            android:name=".ui.voicecall.VoiceCallActivity"
+            android:label="语音通话" />
         <!-- 文本转语音服务 -->
         <service
             android:name=".feature.fall.TtsService"

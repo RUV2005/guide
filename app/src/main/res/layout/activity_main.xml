@@ -112,6 +112,19 @@
         android:src="@drawable/ic_camera_switch"
         app:backgroundTint="@color/white"
         app:elevation="8dp" />
+
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_voice_call"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center"
+        android:layout_marginTop="50dp"
+        android:contentDescription="@string/camera_switch_button"
+        android:src="@drawable/ic_voice_call_start"
+        app:backgroundTint="@color/white"
+        app:elevation="8dp"
+        />
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_voice"
         android:layout_width="wrap_content"
