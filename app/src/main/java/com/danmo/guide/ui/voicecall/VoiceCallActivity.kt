@@ -10,7 +10,7 @@ import android.media.MediaRecorder
 import android.os.Bundle
 import android.util.Log
 import android.view.View
-import android.widget.Toast // 添加Toast导入
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -74,7 +74,6 @@ object Protocol {
 class VoiceCallActivity : AppCompatActivity() {
 
     // 音频配置
-// 音频配置
     private val inputSampleRate = 24000
     private val outputSampleRate = 24000
     private val chunkSize = 960 // 20ms for 24000Hz, mono, 16bit: 24000/50*2
@@ -113,42 +112,29 @@ class VoiceCallActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_call)
 
-        // 只保留一个权限请求逻辑
-        requestAudioPermission()
+        // 设置音频模式
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        audioManager.isSpeakerphoneOn = true
 
         // 返回按钮事件
         findViewById<View>(R.id.btn_back).setOnClickListener {
             finishCall()
         }
+
+        // 请求权限
+        requestAudioPermission()
     }
 
-    private fun startVoiceCall() {
-        // 初始化音频设备
-        initAudioDevices()
-
-        // 连接WebSocket
-        connectWebSocket()
-    }
-
-    private fun float32ToPCM16Bytes(floatData: ByteArray): ByteArray {
-        val floatBuffer = ByteBuffer.wrap(floatData).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
-        val pcm16Array = ByteArray(floatBuffer.remaining() * 2)
-        var idx = 0
-        while (floatBuffer.hasRemaining()) {
-            val f = floatBuffer.get().coerceIn(-1f, 1f)
-            val s = (f * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-            pcm16Array[idx++] = (s and 0xFF).toByte()
-            pcm16Array[idx++] = ((s shr 8) and 0xFF).toByte()
-        }
-        return pcm16Array
-    }
-
+    // 修复点1: 确保在权限获取后再初始化音频设备
     private fun requestAudioPermission() {
         when {
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.RECORD_AUDIO
             ) == PackageManager.PERMISSION_GRANTED -> {
+                // 权限已授予，初始化音频设备
+                initAudioDevices()
                 startVoiceCall()
             }
 
@@ -180,9 +166,10 @@ class VoiceCallActivity : AppCompatActivity() {
         }
     }
 
-    private fun initAudioDevices() {
-        try {
-            // 修复：添加AudioRecord初始化
+    // 修复点2: 重构音频设备初始化，添加状态检查
+    private fun initAudioDevices(): Boolean {
+        return try {
+            // 初始化录音设备
             val minBufferSize = AudioRecord.getMinBufferSize(
                 inputSampleRate,
                 AudioFormat.CHANNEL_IN_MONO,
@@ -190,21 +177,27 @@ class VoiceCallActivity : AppCompatActivity() {
             ).coerceAtLeast(chunkSize * 2)
 
             audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                 inputSampleRate,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
                 minBufferSize
             )
 
-            // AudioTrack配置
+            // 检查录音设备是否初始化成功
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e("AudioInit", "AudioRecord初始化失败")
+                showToast("麦克风初始化失败")
+                return false
+            }
+
+            // 初始化播放设备
             val trackBufferSize = AudioTrack.getMinBufferSize(
                 outputSampleRate,
                 AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT
             ).coerceAtLeast(chunkSize * 4)
 
-// AudioTrack 配置
             audioTrack = AudioTrack(
                 AudioManager.STREAM_MUSIC,
                 outputSampleRate,
@@ -215,15 +208,51 @@ class VoiceCallActivity : AppCompatActivity() {
             ).apply {
                 setVolume(AudioTrack.getMaxVolume())
             }
+
+            // 检查播放设备是否初始化成功
+            if (audioTrack?.state != AudioTrack.STATE_INITIALIZED) {
+                Log.e("AudioInit", "AudioTrack初始化失败")
+                showToast("扬声器初始化失败")
+                return false
+            }
+
+            // 配置音频轨道
+            configureAudioTrack()
+            true
         } catch (e: SecurityException) {
             Log.e("AudioInit", "缺少录音权限", e)
             showToast("缺少录音权限")
-            finish()
+            false
         } catch (e: Exception) {
             Log.e("AudioInit", "音频设备初始化失败", e)
             showToast("音频设备初始化失败")
-            finish()
+            false
         }
+    }
+
+    private fun configureAudioTrack() {
+        audioTrack?.apply {
+            setBufferSizeInFrames(chunkSize * 2)
+            setVolume(0.7f)
+        }
+    }
+
+    private fun startVoiceCall() {
+        // 连接WebSocket
+        connectWebSocket()
+    }
+
+    private fun float32ToPCM16Bytes(floatData: ByteArray): ByteArray {
+        val floatBuffer = ByteBuffer.wrap(floatData).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
+        val pcm16Array = ByteArray(floatBuffer.remaining() * 2)
+        var idx = 0
+        while (floatBuffer.hasRemaining()) {
+            val f = floatBuffer.get().coerceIn(-1f, 1f)
+            val s = (f * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            pcm16Array[idx++] = (s and 0xFF).toByte()
+            pcm16Array[idx++] = ((s shr 8) and 0xFF).toByte()
+        }
+        return pcm16Array
     }
 
     private fun connectWebSocket() {
@@ -400,7 +429,21 @@ class VoiceCallActivity : AppCompatActivity() {
         return buffer.array()
     }
 
+    // 修复点3: 确保音频设备初始化成功后再启动协程
     private fun startAudioCoroutines() {
+        // 检查音频设备是否初始化成功
+        if (audioRecord == null || audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+            Log.e("Audio", "录音设备未初始化，无法启动协程")
+            showToast("录音设备初始化失败")
+            return
+        }
+
+        if (audioTrack == null || audioTrack?.state != AudioTrack.STATE_INITIALIZED) {
+            Log.e("Audio", "播放设备未初始化，无法启动协程")
+            showToast("播放设备初始化失败")
+            return
+        }
+
         // 启动播放协程
         playJob = scope.launch {
             try {
@@ -412,7 +455,6 @@ class VoiceCallActivity : AppCompatActivity() {
                     try {
                         val audioData = audioQueue.poll(100, TimeUnit.MILLISECONDS)
                         if (audioData != null) {
-                            // 添加分块写入防止卡顿
                             var offset = 0
                             while (offset < audioData.size && isRunning) {
                                 val writeSize = minOf(1024, audioData.size - offset)
@@ -439,19 +481,11 @@ class VoiceCallActivity : AppCompatActivity() {
             }
         }
 
-
         // 启动录音协程
         recordJob = scope.launch {
             val buffer = ByteArray(chunkSize)
             try {
                 Log.d("Audio", "启动音频录制")
-
-                // 检查audioRecord是否初始化成功
-                if (audioRecord == null) {
-                    Log.e("AudioRecord", "音频录制设备未初始化")
-                    return@launch
-                }
-
                 audioRecord?.startRecording()
                 isRecording = true
 
@@ -463,7 +497,6 @@ class VoiceCallActivity : AppCompatActivity() {
                         }
                         delay(10)
                     } catch (e: Exception) {
-                        // 忽略取消异常（使用更通用的检查方式）
                         if (!isRunning) {
                             Log.d("AudioRecord", "正常停止录音")
                         } else {
@@ -472,7 +505,6 @@ class VoiceCallActivity : AppCompatActivity() {
                     }
                 }
             } catch (e: Exception) {
-                // 忽略取消异常（使用更通用的检查方式）
                 if (!isRunning) {
                     Log.d("AudioRecord", "正常停止录音")
                 } else {
@@ -602,7 +634,6 @@ class VoiceCallActivity : AppCompatActivity() {
         }
     }
 
-    // 转换工具方法
     private fun shortArrayToByteArray(samples: ShortArray): ByteArray {
         val bytes = ByteArray(samples.size * 2)
         ByteBuffer.wrap(bytes)
@@ -687,8 +718,15 @@ class VoiceCallActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 1 && grantResults.isNotEmpty() &&
-            grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startVoiceCall()
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            // 权限获取后重新初始化
+            if (initAudioDevices()) {
+                startVoiceCall()
+            } else {
+                showToast("音频设备初始化失败")
+                finish()
+            }
         } else {
             showToast("需要录音权限才能使用语音通话")
             finish()

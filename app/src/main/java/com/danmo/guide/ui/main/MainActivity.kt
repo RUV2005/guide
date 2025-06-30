@@ -128,7 +128,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private var isWeatherAnnounced = false
     private lateinit var fallDetector: FallDetector
     private lateinit var sensorManager: SensorManager
-    private var ttsService: TtsService? = null
+    var ttsService: TtsService? = null
     private var isTtsBound = false
     private var lastLightValue = 0f
     private var falseAlarmCancelCount = 0
@@ -206,6 +206,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                 showToast("需要麦克风权限才能使用语音功能")
             }
         }
+
 
 
     private fun checkCameraPermission() {
@@ -570,28 +571,58 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
-    private val requestCallPermission =
+    // 在类变量区定义
+    val requestCallPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (isGranted) {
-                triggerEmergencyCall()
+                fallDetector.triggerEmergencyCall()
+                ttsService?.speak("正在呼叫紧急联系人，请保持冷静")
+            } else {
+                showToast("需要电话权限进行紧急呼叫")
+                ttsService?.speak("未获得电话权限，无法进行紧急呼叫")
+            }
+        }
+    private fun checkCallPermission() = ContextCompat.checkSelfPermission(
+        this,
+        Manifest.permission.CALL_PHONE
+    ) == PackageManager.PERMISSION_GRANTED
+
+    // 在 MainActivity.kt 中添加如下代码
+    val requestPhonePermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            val granted = permissions.entries.all { it.value }
+            if (granted) {
+                fallDetector.triggerEmergencyCall()
+                ttsService?.speak("正在呼叫紧急联系人，请保持冷静")
             } else {
                 showToast("需要电话权限进行紧急呼叫")
                 ttsService?.speak("未获得电话权限，无法进行紧急呼叫")
             }
         }
 
-    private fun checkCallPermission() = ContextCompat.checkSelfPermission(
-        this,
-        Manifest.permission.CALL_PHONE
-    ) == PackageManager.PERMISSION_GRANTED
-
+    // 在MainActivity中的triggerEmergencyCall方法中添加如下代码
     private fun triggerEmergencyCall() {
         if (checkCallPermission()) {
             fallDetector.triggerEmergencyCall()
             ttsService?.speak("正在呼叫紧急联系人，请保持冷静")
         } else {
-            requestCallPermission.launch(Manifest.permission.CALL_PHONE)
-            ttsService?.speak("需要电话权限才能呼叫紧急联系人")
+            // 添加电话权限请求
+            if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CALL_PHONE)) {
+                AlertDialog.Builder(this)
+                    .setTitle("需要电话权限")
+                    .setMessage("紧急呼叫功能需要电话权限，请允许权限后重试")
+                    .setPositiveButton("去设置") { _, _ ->
+                        Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", packageName, null)
+                            startActivity(this)
+                        }
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            } else {
+                requestCallPermission.launch(Manifest.permission.CALL_PHONE)
+                ttsService?.speak("需要电话权限才能呼叫紧急联系人")
+            }
         }
     }
 

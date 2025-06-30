@@ -1,5 +1,6 @@
 package com.danmo.guide.feature.fall
 import android.Manifest
+import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
@@ -23,6 +24,7 @@ import androidx.core.app.ActivityCompat
 import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.danmo.guide.feature.location.LocationManager
+import com.danmo.guide.ui.main.MainActivity
 import kotlin.math.abs
 import kotlin.math.sqrt
 class FallDetector(
@@ -207,16 +209,33 @@ private val sosNumber: String = "123456789000000"
             showPermissionWarning()
         }
     }
+    // 在 FallDetector.kt 中的 startEmergencyCall 方法中添加如下代码
     private fun startEmergencyCall() {
-        (context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager)?.let {
-            if (it.callState == TelephonyManager.CALL_STATE_IDLE) {
-                Intent(Intent.ACTION_CALL).apply {
-                    data = Uri.parse("tel:$sosNumber")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    context.startActivity(this)
-                }
-                showToast("紧急呼叫已启动")
-            }
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CALL_PHONE
+            ) == PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_PHONE_STATE
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            // 调用紧急呼叫相关逻辑
+            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$sosNumber"))
+            context.startActivity(intent)
+        } else {
+            requestPhonePermissions()
+        }
+    }
+
+    private fun requestPhonePermissions() {
+        if (context is MainActivity) {
+            (context as MainActivity).requestPhonePermissions.launch(
+                arrayOf(
+                    Manifest.permission.CALL_PHONE,
+                    Manifest.permission.READ_PHONE_STATE
+                )
+            )
         }
     }
     // 工具方法
@@ -229,8 +248,13 @@ private val sosNumber: String = "123456789000000"
         return ActivityCompat.checkSelfPermission(
             context,
             Manifest.permission.CALL_PHONE
-        ) == PackageManager.PERMISSION_GRANTED
+        ) == PackageManager.PERMISSION_GRANTED &&
+                ActivityCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.READ_PHONE_STATE
+                ) == PackageManager.PERMISSION_GRANTED
     }
+
     private fun showPermissionWarning() {
         Toast.makeText(context, "需要电话权限才能自动呼叫", Toast.LENGTH_LONG).show()
     }
