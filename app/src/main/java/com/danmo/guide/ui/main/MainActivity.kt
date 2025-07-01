@@ -710,9 +710,30 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             processed.contains("帮助") || processed.contains("获取帮助") -> showVoiceHelp()
             processed.contains("设置") || processed.contains("打开设置") -> openSettings()
             processed.contains("退出") || processed.contains("退出应用") -> finish()
-            processed.contains("开始检测") || processed.contains("启动检测") -> startDetection()
-            processed.contains("暂停检测") || processed.contains("停止检测") -> pauseDetection()
+
+            processed.contains("开始检测") || processed.contains("启动检测") -> {
+                if (isDetectionActive) {
+                    ttsService?.speak("障碍物检测已经在运行中")
+                    binding.statusText.text = "检测已在运行"
+                } else {
+                    startDetection()
+                }
+            }
+
+            processed.contains("暂停检测") || processed.contains("停止检测") -> {
+                if (!isDetectionActive) {
+                    ttsService?.speak("障碍物检测已经处于暂停状态")
+                    binding.statusText.text = "检测已暂停"
+                } else {
+                    pauseDetection()
+                }
+            }
             processed.contains("语音通话") || processed.contains("聊天") -> startVoiceCallActivity()
+            processed.contains("检测状态") || processed.contains("当前状态") -> {
+                val status = if (isDetectionActive) "正在运行" else "已暂停"
+                ttsService?.speak("当前障碍物检测$status")
+                binding.statusText.text = "检测状态: $status"
+            }
             else -> ttsService?.speak("未识别指令，请说'帮助'查看可用指令")
         }
     }
@@ -724,6 +745,12 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             overlayView.visibility = View.VISIBLE
         }
         ttsService?.speak("已开启障碍物检测，请注意周围环境")
+
+        // 添加视觉反馈动画
+        binding.overlayView.animate()
+            .alpha(0.8f)
+            .setDuration(500)
+            .withEndAction { binding.overlayView.alpha = 1f }
     }
 
     // 新增跳转方法
@@ -743,6 +770,12 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             overlayView.visibility = View.INVISIBLE
         }
         ttsService?.speak("已暂停障碍物检测")
+
+        // 添加视觉反馈
+        binding.previewView.animate()
+            .alpha(0.6f)
+            .setDuration(500)
+            .withEndAction { binding.previewView.alpha = 1f }
     }
 
     private fun startChat(){
