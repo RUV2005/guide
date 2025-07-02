@@ -1,6 +1,5 @@
 package com.danmo.guide.feature.fall
 import android.Manifest
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
@@ -16,13 +15,11 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.telephony.TelephonyManager
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import com.amap.api.location.AMapLocation
-import com.amap.api.location.AMapLocationClient
 import com.danmo.guide.feature.location.LocationManager
 import com.danmo.guide.ui.main.MainActivity
 import kotlin.math.abs

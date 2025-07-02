@@ -120,6 +120,17 @@
         <activity
             android:name=".ui.voicecall.VoiceCallActivity"
             android:label="语音通话" />
+        <activity
+            android:name=".ui.room.RoomActivity"
+            android:exported="true"
+            android:label="@string/room"
+            android:parentActivityName=".ui.main.MainActivity">
+            <!-- 添加 intent-filter -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <!-- 文本转语音服务 -->
         <service
             android:name=".feature.fall.TtsService"

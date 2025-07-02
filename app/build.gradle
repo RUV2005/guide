@@ -126,6 +126,7 @@ dependencies {
         exclude group: 'com.google.ai.edge.litert', module: 'litert'
         exclude group: 'com.google.ai.edge.litert', module: 'litert-api'
     }
+    implementation("com.volcengine:volcengine-java-sdk-ark-runtime:0.2.20")
     implementation(libs.material)
     // OkHttp 网络库
     implementation libs.okhttp

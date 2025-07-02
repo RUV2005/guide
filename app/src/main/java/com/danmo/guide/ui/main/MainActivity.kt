@@ -18,7 +18,6 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -50,6 +49,7 @@ import com.danmo.guide.feature.feedback.FeedbackManager
 import com.danmo.guide.feature.location.LocationManager
 import com.danmo.guide.feature.weather.WeatherManager
 import com.danmo.guide.ui.components.OverlayView
+import com.danmo.guide.ui.room.RoomActivity
 import com.danmo.guide.ui.settings.SettingsActivity
 import com.danmo.guide.ui.voicecall.VoiceCallActivity
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +62,6 @@ import okhttp3.Request
 import org.json.JSONObject
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.task.vision.detector.Detection
-import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
@@ -94,6 +93,8 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private val RECONNECT_DELAY = 5000L
     private val MAX_RETRIES = 5
     private var retryCount = 0 // 添加重试计数器变量
+    // 添加户外模式播报状态跟踪
+    private var hasOutdoorModeAnnounced = false
 
     private companion object {
         const val LOCATION_PERMISSION_REQUEST_CODE = 1001
@@ -140,6 +141,11 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private val MOVEMENT_THRESHOLD = 2.5 // 移动检测阈值（m/s²）
     private val MOVEMENT_WINDOW = 5L // 移动判断时间窗口（5秒）
     private var hasAnnouncedDelay = false
+    // 添加延迟播报处理器
+    private val announcementHandler = Handler(Looper.getMainLooper())
+    private val announcementRunnable = Runnable {
+        announceOutdoorMode()
+    }
 
     private fun applyLowPassFilter(currentValue: Double): Double {
         accelerationHistory.add(currentValue)
@@ -236,6 +242,10 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             ttsService = binder.getService()
             Log.d("MainActivity", "TTS服务已连接")
             fallDetector.ttsService = ttsService
+
+            // 确保在服务连接后播报
+            ensureOutdoorModeAnnouncement()
+
             // 服务连接后处理可能存在的队列
             ttsService?.processNextInQueue()
         }
@@ -246,6 +256,31 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
+
+    // 确保户外模式播报
+    private fun ensureOutdoorModeAnnouncement() {
+        // 取消之前的延迟任务（如果存在）
+        announcementHandler.removeCallbacks(announcementRunnable)
+
+        // 设置新的延迟任务（3秒后播报）
+        announcementHandler.postDelayed(announcementRunnable, 3000)
+    }
+
+
+    // 添加户外模式播报方法
+    private fun announceOutdoorMode() {
+        if (!hasOutdoorModeAnnounced && isTtsBound && ttsService != null) {
+            runOnUiThread {
+                binding.statusText.text = "当前模式: 户外模式"
+            }
+            ttsService?.speak("当前为户外模式", true)
+            hasOutdoorModeAnnounced = true
+            Log.d("MainActivity", "户外模式播报完成")
+        }
+    }
+
+
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -253,6 +288,9 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         setContentView(binding.root)
         AMapLocationClient.updatePrivacyShow(this, true, true)
         AMapLocationClient.updatePrivacyAgree(this, true)
+
+        // 初始化后安排延迟播报
+        ensureOutdoorModeAnnouncement()
 
         initBasicComponents()
         initFallDetection()
@@ -321,18 +359,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                 )
             }
         }
-    }
-
-    private fun handleVoiceCallButton() {
-        if (isTtsBound) {
-            ttsService?.speak("正在启动语音通话")
-        }
-        binding.statusText.text = "正在启动语音通话..."
-
-        // 延迟300ms确保语音播报完成
-        Handler(Looper.getMainLooper()).postDelayed({
-            startVoiceCallActivity()
-        }, 300)
     }
 
 
@@ -546,6 +572,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
+
     override fun onResume() {
         super.onResume()
         fallDetector.startListening()
@@ -555,6 +582,49 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             SensorManager.SENSOR_DELAY_UI,
             100_000
         )
+
+        // 确保重新初始化摄像头
+        if (isCameraMode) {
+            Log.d("Camera", "重新初始化内置摄像头")
+            initCameraResources()
+            checkCameraPermission()
+        } else {
+            Log.d("Camera", "重新启动外置摄像头流")
+            startStream()
+        }
+        // 确保在恢复时安排播报
+        ensureOutdoorModeAnnouncement()
+    }
+
+    private fun isCameraInitialized(): Boolean {
+        return ::cameraManager.isInitialized && !cameraExecutor.isShutdown
+    }
+
+    private fun initCameraResources() {
+        // 确保执行器可用
+        if (::cameraExecutor.isInitialized && cameraExecutor.isShutdown) {
+            cameraExecutor = Executors.newSingleThreadExecutor()
+        } else if (!::cameraExecutor.isInitialized) {
+            cameraExecutor = Executors.newSingleThreadExecutor()
+        }
+
+        // 确保摄像头管理器可用
+        if (!::cameraManager.isInitialized) {
+            cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
+        } else {
+            // 如果已初始化但被关闭，重新创建
+            try {
+                if (cameraManager.isShutdown()) {  // 修复调用isShutdown()
+                    cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
+                }
+            } catch (e: Exception) {
+                Log.e("Camera", "检查摄像头管理器状态失败", e)
+                cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
+            }
+        }
+
+        // 添加日志以便调试
+        Log.d("Camera", "摄像头资源初始化完成: executor=${cameraExecutor.isShutdown}, manager=${::cameraManager.isInitialized}")
     }
 
     override fun onPause() {
@@ -675,7 +745,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             speechRecognizer.startListening(recognizerIntent)
             isListening = true
             binding.statusText.text = "正在聆听..."
-            ttsService?.speak("用户您好，语音识别已激活，您请说", true)
+            ttsService?.speak("您请说", true)
         } catch (e: Exception) {
             Log.e("Speech", "启动识别失败: ${e.message}")
             showToast("语音识别启动失败，请重试")
@@ -734,6 +804,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                 ttsService?.speak("当前障碍物检测$status")
                 binding.statusText.text = "检测状态: $status"
             }
+            processed.contains("场景描述模式") || processed.contains("室内模式") -> startRoomActivity()
             else -> ttsService?.speak("未识别指令，请说'帮助'查看可用指令")
         }
     }
@@ -757,11 +828,24 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private fun startVoiceCallActivity() {
         binding.statusText.text = "正在启动语音通话..."
 
+
         // 添加过渡动画
         overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
 
         // 启动语音通话活动
         startActivity(Intent(this, VoiceCallActivity::class.java))
+    }
+
+    private fun startRoomActivity() {
+        binding.statusText.text = "正在进入场景描述模式..."
+
+        // 添加过渡动画
+        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+
+        // 延迟确保语音播报完成后再跳转
+        Handler(Looper.getMainLooper()).postDelayed({
+            startActivity(Intent(this, RoomActivity::class.java))
+        }, 300) // 300ms延迟确保语音播报完成
     }
     private fun pauseDetection() {
         isDetectionActive = false
@@ -778,9 +862,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             .withEndAction { binding.previewView.alpha = 1f }
     }
 
-    private fun startChat(){
-
-    }
     private fun showVoiceHelp() {
         ttsService?.speak(
             """
@@ -832,12 +913,14 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isCameraMode) {
-            cameraManager.shutdown()
-        } else {
-            stopStream()
-        }
-        cameraExecutor.shutdown()
+
+        // 统一释放资源
+        releaseCameraResources()
+
+        // 停止视频流（如果正在运行）
+        stopStream()
+
+        // 释放其他资源
         if (::speechRecognizer.isInitialized) {
             speechRecognizer.apply {
                 stopListening()
@@ -849,7 +932,11 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             isTtsBound = false
         }
         locationManager.destroy()
-        stopStream()
+
+        // 注销传感器监听
+        sensorManager.unregisterListener(this)
+        // 移除所有待处理的播报任务
+        announcementHandler.removeCallbacks(announcementRunnable)
     }
 
     private fun handleLightSensor(event: SensorEvent) {
@@ -887,7 +974,21 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private fun startCamera() {
         // 确保相机资源已初始化
         if (::cameraManager.isInitialized) {
-            cameraManager.initializeCamera(binding.previewView.surfaceProvider)
+            try {
+                // 添加检查防止在无效状态下启动
+                if (!isFinishing && !isDestroyed) {
+                    cameraManager.initializeCamera(binding.previewView.surfaceProvider)
+                    Log.d("Camera", "摄像头成功启动")
+                } else {
+                    Log.w("Camera", "Activity正在销毁，跳过摄像头启动")
+                }
+            } catch (e: Exception) {
+                Log.e("Camera", "启动摄像头失败", e)
+                showToast("启动摄像头失败: ${e.message}")
+            }
+        } else {
+            Log.w("Camera", "尝试启动未初始化的摄像头管理器")
+            showToast("摄像头初始化失败，请重试")
         }
     }
 
@@ -1039,7 +1140,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
                         leftoverData = ByteArray(0)
 
-                        val contentType = response.header("Content-Type") ?: ""
+                        val contentType = response.header("com.danmo.guide.ui.room.Content-Type") ?: ""
                         boundary = contentType.split("boundary=").last().trim()
                         Log.d(TAG, "Using boundary: --$boundary")
 
@@ -1111,7 +1212,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             val headers = String(sectionData, 0, headerEndIndex)
             val contentLength = extractContentLength(headers)
             if (contentLength == -1) {
-                Log.e(TAG, "Invalid Content-Length")
+                Log.e(TAG, "Invalid com.danmo.guide.ui.room.Content-Length")
                 return
             }
 
@@ -1207,7 +1308,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
     // 提取内容长度
     private fun extractContentLength(headers: String): Int {
-        return Regex("Content-Length:\\s*(\\d+)", RegexOption.IGNORE_CASE)
+        return Regex("com.danmo.guide.ui.room.Content-Length:\\s*(\\d+)", RegexOption.IGNORE_CASE)
             .find(headers)
             ?.groupValues
             ?.get(1)
@@ -1242,55 +1343,46 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private fun switchCameraMode() {
         runOnUiThread {
             if (isCameraMode) {
-                // 添加 layout listener
-                binding.streamView.viewTreeObserver.addOnGlobalLayoutListener {
-                    if (!isCameraMode) {
-                        updateStreamDisplayRect()
-                    }
-                }
-                // 切换到外置摄像头（视频流）模式
+                // 切换到外置摄像头模式
                 binding.previewView.visibility = View.GONE
                 binding.streamView.visibility = View.VISIBLE
                 binding.timerText.visibility = View.VISIBLE
 
-                // 完全关闭内置摄像头资源
-                cameraManager.shutdown()
-                cameraExecutor.shutdownNow()
+                // 释放内置摄像头资源
+                releaseCameraResources()
 
-                // 设置视频流显示区域
-                updateStreamDisplayRect()
-
-                // 设置模型输入尺寸（视频流原始分辨率）
-                binding.overlayView.setModelInputSize(640, 480) // 根据实际视频流分辨率调整
-
+                // 启动视频流
                 startStream()
                 isCameraMode = false
 
                 ttsService?.speak("已切换到外置摄像头模式")
             } else {
-                // 如果不需要再监听，可以移除监听器
-                binding.streamView.viewTreeObserver.removeOnGlobalLayoutListener {
-                    if (!isCameraMode) {
-                        updateStreamDisplayRect()
-                    }
-                }
                 // 切换回内置摄像头
                 binding.previewView.visibility = View.VISIBLE
                 binding.streamView.visibility = View.GONE
                 binding.timerText.visibility = View.GONE
                 stopStream()
 
-                // 重置为摄像头模式
-                binding.overlayView.resetToCameraMode()
-
-                // 重新初始化内置摄像头
-                cameraExecutor = Executors.newSingleThreadExecutor()
-                cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
+                // 重新初始化内置摄像头资源
+                initCameraResources()
                 checkCameraPermission()
                 isCameraMode = true
 
                 ttsService?.speak("已切换到内置摄像头模式")
             }
+        }
+    }
+    private fun releaseCameraResources() {
+        try {
+            if (::cameraManager.isInitialized) {
+                cameraManager.shutdown()  // 修复调用shutdown()
+            }
+            if (::cameraExecutor.isInitialized && !cameraExecutor.isShutdown) {
+                cameraExecutor.shutdown()
+            }
+            Log.d("Camera", "摄像头资源已释放")
+        } catch (e: Exception) {
+            Log.e("Camera", "释放摄像头资源失败", e)
         }
     }
 }

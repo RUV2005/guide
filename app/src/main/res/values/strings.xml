@@ -29,4 +29,5 @@
     <string name="version_format_error">版本格式异常，请联系管理员</string>
     <string name="voice_control">语音控制</string>
     <string name="voice_call">语音通话</string>
+    <string name="room">室内描述模式</string>>
 </resources>

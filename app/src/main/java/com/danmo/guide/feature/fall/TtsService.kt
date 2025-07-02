@@ -54,15 +54,19 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     }
     fun speak(text: String, immediate: Boolean = false) {
         if (!isTtsReady) return
+
         if (immediate) {
+            // 立即播报模式：清空队列并立即播放
             speechQueue.clear()
+            tts.stop() // 停止当前播报
             speechQueue.add(Pair(text, true))
-            stopCurrent()
-        } else {
-            speechQueue.add(Pair(text, false))
-        }
-        if (currentUtteranceId == null) {
             processNextInQueue()
+        } else {
+            // 普通模式：加入队列
+            speechQueue.add(Pair(text, false))
+            if (currentUtteranceId == null) {
+                processNextInQueue()
+            }
         }
     }
     fun processNextInQueue() {
