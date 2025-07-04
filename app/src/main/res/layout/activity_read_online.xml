@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:ignore="MergeRootFrame">
+    <!-- 添加黑色背景遮罩 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000" />
+    <!-- PreviewView 在底层 -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/preview_view"
+        android:layout_marginBottom="150dp"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:scaleType="fitCenter" />
+    <!-- 拍照按钮 -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/camera_button"
+        android:layout_width="72dp"
+        android:layout_height="72dp"
+        android:layout_gravity="bottom|center"
+        android:layout_marginBottom="64dp"
+        app:cardCornerRadius="40dp"
+        app:cardElevation="8dp">
+        <ImageView
+            android:id="@+id/btnRecognize"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="拍照按钮"
+            android:gravity="center"
+            android:scaleType="center"
+            android:src="@drawable/ic_camera" />
+    </androidx.cardview.widget.CardView>
+
+    <!-- 拍照按钮 -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/repeat_button"
+        android:layout_width="72dp"
+        android:layout_height="72dp"
+        android:layout_gravity="bottom|right"
+        android:layout_marginBottom="64dp"
+        app:cardCornerRadius="40dp"
+        app:cardElevation="8dp">
+        <ImageView
+            android:id="@+id/btnRepeat"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="重新播报"
+            android:gravity="center"
+            android:scaleType="center"
+            android:src="@drawable/ic_switch_speaker" />
+    </androidx.cardview.widget.CardView>
+
+
+</FrameLayout>

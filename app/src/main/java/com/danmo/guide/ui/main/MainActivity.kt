@@ -49,6 +49,7 @@ import com.danmo.guide.feature.feedback.FeedbackManager
 import com.danmo.guide.feature.location.LocationManager
 import com.danmo.guide.feature.weather.WeatherManager
 import com.danmo.guide.ui.components.OverlayView
+import com.danmo.guide.ui.read.ReadOnlineActivity
 import com.danmo.guide.ui.room.RoomActivity
 import com.danmo.guide.ui.settings.SettingsActivity
 import com.danmo.guide.ui.voicecall.VoiceCallActivity
@@ -805,6 +806,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                 binding.statusText.text = "检测状态: $status"
             }
             processed.contains("场景描述模式") || processed.contains("室内模式") -> startRoomActivity()
+            processed.contains("阅读模式") -> startReadOnlineActivity()
             else -> ttsService?.speak("未识别指令，请说'帮助'查看可用指令")
         }
     }
@@ -847,6 +849,19 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             startActivity(Intent(this, RoomActivity::class.java))
         }, 300) // 300ms延迟确保语音播报完成
     }
+
+    private fun startReadOnlineActivity() {
+        binding.statusText.text = "正在进入阅读模式..."
+
+        // 添加过渡动画
+        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+        ttsService?.speak("正在进入阅读模式...")
+        // 延迟确保语音播报完成后再跳转
+        Handler(Looper.getMainLooper()).postDelayed({
+            startActivity(Intent(this, ReadOnlineActivity::class.java))
+        }, 300) // 300ms延迟确保语音播报完成
+    }
+
     private fun pauseDetection() {
         isDetectionActive = false
         runOnUiThread {
