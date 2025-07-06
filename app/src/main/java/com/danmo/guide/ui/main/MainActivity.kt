@@ -1158,7 +1158,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
                         leftoverData = ByteArray(0)
 
-                        val contentType = response.header("com.danmo.guide.ui.room.Content-Type") ?: ""
+                        val contentType = response.header("Content-Type") ?: ""
                         boundary = contentType.split("boundary=").last().trim()
                         Log.d(TAG, "Using boundary: --$boundary")
 
@@ -1326,7 +1326,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
     // 提取内容长度
     private fun extractContentLength(headers: String): Int {
-        return Regex("com.danmo.guide.ui.room.Content-Length:\\s*(\\d+)", RegexOption.IGNORE_CASE)
+        return Regex("Content-Length:\\s*(\\d+)", RegexOption.IGNORE_CASE)
             .find(headers)
             ?.groupValues
             ?.get(1)
