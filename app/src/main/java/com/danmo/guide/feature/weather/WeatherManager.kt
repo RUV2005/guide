@@ -62,48 +62,23 @@ class WeatherManager(private val context: Context) {
                 val weatherDesc = weather.weather?.firstOrNull()?.description ?: ""
                 val windSpeed = weather.wind?.speed?.toInt() ?: 0
                 Log.d("Weather", "生成播报文本: 城市=$cityName, 温度=$temp, 天气描述=$weatherDesc")
-                append("亲爱的先行体验官，")
-                // 智能时间问候
-                val hourPart = currentTime.split(":").getOrNull(0)?.toIntOrNull()
-                if (hourPart != null) {
-                    append(
-                        when {
-                            hourPart in 5..9 -> "早上好呀！"
-                            hourPart in 10..12 -> "上午好呀！"
-                            hourPart in 13..17 -> "下午好呀！"
-                            hourPart in 18..21 -> "晚上好呀！"
-                            else -> "您好"
-                        }
-                    )
-                } else {
-                    append("您好")
-                }
-                // 城市播报
-                append("您目前位于$cityName,现在")
                 // 温度播报
                 when {
-                    temp == 999 -> append("暂时获取不到温度数据哦")
-                    temp <= 0 -> append("零下${abs(temp)}度，外面很冷，注意保暖呀")
-                    temp in 1..10 -> append("${temp}度，有点冷，出门穿厚点哦")
-                    temp in 11..20 -> append("${temp}度，温度舒适呢")
-                    temp in 21..28 -> append("${temp}度，穿短袖就行啦")
-                    temp > 28 -> append("${temp}度，有点热，注意防暑哦")
+                    temp == 999 -> append("暂时无法获取温度哦")
+                    temp <= 0 -> append("当前温度：零下${abs(temp)}度，注意保暖呀")
+                    temp in 1..10 -> append("当前温度：${temp}度，出门穿厚点哦")
+                    temp in 11..20 -> append("当前温度：${temp}度，温度舒适呢")
+                    temp in 21..28 -> append("当前温度：${temp}度，穿短袖就行啦")
+                    temp > 28 -> append("当前温度：${temp}度，注意防暑哦")
                 }
                 // 天气现象播报
                 when {
-                    "雨" in weatherDesc -> append("，外面在下雨哦，记得带伞")
-                    "雪" in weatherDesc -> append("，外面在下雪哦，出去玩要注意保暖呀")
-                    "雷" in weatherDesc -> append("，外面有雷阵雨，要注意安全哦")
-                    "晴" in weatherDesc && temp > 25 -> append("，阳光明媚，注意防晒哦")
+                    "雨" in weatherDesc -> append("，天气有雨，记得带伞")
+                    "雪" in weatherDesc -> append("，外面有雪，注意保暖呀")
+                    "雷" in weatherDesc -> append("，外面有雷阵雨，谨慎出行哦")
+                    "晴" in weatherDesc && temp > 25 -> append("，阳光明媚")
                     "云" in weatherDesc -> append("，有点云，天气不错呀")
-                    "雾" in weatherDesc -> append("，外面有雾，出行要注意安全哦")
-                }
-                // 智能生活建议
-                when {
-                    "雨" in weatherDesc -> append("，出门一定要记得带伞哦")
-                    temp < 5 -> append("，天气冷，秋裤一定要穿好哦")
-                    temp > 30 && "晴" in weatherDesc -> append("，天气热，记得涂防晒霜哦")
-                    windSpeed > 5 -> append("，风大，出门戴好口罩哦")
+                    "雾" in weatherDesc -> append("，外面有雾，谨慎出行哦")
                 }
             } catch (e: Exception) {
                 Log.e("Weather", "生成语音文本失败", e)

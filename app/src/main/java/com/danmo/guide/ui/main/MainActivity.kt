@@ -178,7 +178,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     override fun onEndOfSpeech() {
         Log.d("Speech", "结束说话")
         isListening = false
-        binding.statusText.text = "正在分析指令..."
     }
 
     override fun onEvent(eventType: Int, params: Bundle?) {
@@ -264,7 +263,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         announcementHandler.removeCallbacks(announcementRunnable)
 
         // 设置新的延迟任务（3秒后播报）
-        announcementHandler.postDelayed(announcementRunnable, 3000)
+        announcementHandler.postDelayed(announcementRunnable, 0)
     }
 
 
@@ -457,10 +456,8 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         val posText = listOfNotNull(location.district, location.street, location.city, location.address)
             .firstOrNull { !it.isNullOrBlank() } ?: "未知位置"
         if (!isWeatherButton) {
-            binding.statusText.text = "定位成功：$posText"
-            ttsService?.speak("当前位置：$posText")
+            ttsService?.speak("当前位置：${location.address}")
         } else {
-            binding.statusText.text = "正在获取 $posText 的天气..."
             getWeatherAndAnnounce(location.latitude, location.longitude, posText)
         }
     }
@@ -802,8 +799,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             processed.contains("语音通话") || processed.contains("聊天") -> startVoiceCallActivity()
             processed.contains("检测状态") || processed.contains("当前状态") -> {
                 val status = if (isDetectionActive) "正在运行" else "已暂停"
-                ttsService?.speak("当前障碍物检测$status")
-                binding.statusText.text = "检测状态: $status"
+                ttsService?.speak("障碍物检测$status")
             }
             processed.contains("场景描述模式") || processed.contains("室内模式") -> startRoomActivity()
             processed.contains("阅读模式") -> startReadOnlineActivity()
@@ -839,7 +835,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     }
 
     private fun startRoomActivity() {
-        binding.statusText.text = "正在进入场景描述模式..."
 
         // 添加过渡动画
         overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
@@ -865,7 +860,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private fun pauseDetection() {
         isDetectionActive = false
         runOnUiThread {
-            binding.statusText.text = "障碍物检测已暂停"
             overlayView.visibility = View.INVISIBLE
         }
         ttsService?.speak("已暂停障碍物检测")
@@ -878,20 +872,29 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     }
 
     private fun showVoiceHelp() {
-        ttsService?.speak(
-            """
-            可用语音指令：
-            · 天气 - 获取当前天气
-            · 位置 - 获取当前位置
-            · 设置 - 打开设置界面
-            · 退出 - 退出应用
-            · 开始检测 - 启动障碍物检测
-            · 暂停检测 - 暂停障碍物检测
-            · 我需要帮助 - 触发紧急求助
-        """.trimIndent()
+        // 将帮助文本分成多个段落
+        val helpSegments = listOf(
+            "可用语音指令：",
+            "· 天气 - 获取当前天气",
+            "· 位置 - 获取当前位置",
+            "· 设置 - 打开设置界面",
+            "· 退出 - 退出应用",
+            "· 开始检测 - 启动障碍物检测",
+            "· 暂停检测 - 暂停障碍物检测",
+            "· 我需要帮助 - 触发紧急求助",
+            "· 语音通话 - 启动语音通话功能",
+            "· 场景描述 - 切换到室内场景描述模式",
+            "· 阅读模式 - 进入在线阅读模式"
         )
-    }
 
+        // 使用协程按顺序播报每个段落
+        lifecycleScope.launch {
+            for (segment in helpSegments) {
+                ttsService?.speak(segment) // 正确调用 speak 方法
+                delay(1000) // 添加1秒延迟确保语音清晰
+            }
+        }
+    }
     private fun handleWeatherCommand() {
         ttsService?.speak("正在获取天气信息")
         binding.fabWeather.performClick()
