@@ -129,7 +129,7 @@ class LocationManager private constructor() : AMapLocationListener {
                 if (hasAddress) {
                     notifySuccess(aMapLocation)
                 } else {
-                    // 兜底：用高德逆地理API获取详细地址
+                    // 兜底：用高德逆地理API
                     safeActivity?.let { activity ->
                         // 启动协程（需主工程引入kotlinx-coroutines-android依赖）
                         CoroutineScope(Dispatchers.Main).launch {

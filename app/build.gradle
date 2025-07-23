@@ -58,6 +58,20 @@ android {
             }
         }
     }
+
+// app/build.gradle 的 android {} 块里添加
+    applicationVariants.all { variant ->
+        if (variant.name.contains("Debug")) {
+            variant.outputs.each { output ->
+                output.processManifest.doLast {
+                    def manifestFile = file("${buildDir}/intermediates/merged_manifests/${variant.name}/AndroidManifest.xml")
+                    def content = manifestFile.getText('UTF-8')
+                    content = content.replaceAll('android:testOnly="true"', 'android:testOnly="false"')
+                    manifestFile.write(content, 'UTF-8')
+                }
+            }
+        }
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
@@ -95,51 +109,45 @@ dependencies {
     implementation libs.androidx.ui.graphics
     implementation libs.androidx.ui.tooling.preview
     implementation libs.androidx.material3
+
     // 基础库
-    implementation(libs.androidx.appcompat)
+    implementation libs.androidx.appcompat
+
     // Compose
-    implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.ui)
-    implementation(libs.androidx.ui.graphics)
-    implementation(libs.androidx.ui.tooling.preview)
-    implementation(libs.androidx.material3)
+    implementation libs.androidx.activity.compose
+    implementation platform(libs.androidx.compose.bom)
+    implementation libs.androidx.ui
+    implementation libs.androidx.ui.graphics
+    implementation libs.androidx.ui.tooling.preview
+    implementation libs.androidx.material3
+
     // CameraX
-    implementation(libs.androidx.camera.core)
-    implementation(libs.androidx.camera.camera2)
-    implementation(libs.androidx.camera.lifecycle)
-    implementation(libs.androidx.camera.view)
-    // TensorFlow Lite
-    implementation(libs.tensorflow.lite) {
-        exclude group: 'com.google.ai.edge.litert', module: 'litert'
-        exclude group: 'com.google.ai.edge.litert', module: 'litert-api'
-    }
-    implementation(libs.tensorflow.lite.support) {
-        exclude group: 'com.google.ai.edge.litert', module: 'litert'
-        exclude group: 'com.google.ai.edge.litert', module: 'litert-api'
-    }
-    implementation(libs.tensorflow.lite.gpu) {
-        exclude group: 'com.google.ai.edge.litert', module: 'litert'
-        exclude group: 'com.google.ai.edge.litert', module: 'litert-api'
-    }
-    implementation(libs.tensorflow.lite.task.vision) {
-        exclude group: 'com.google.ai.edge.litert', module: 'litert'
-        exclude group: 'com.google.ai.edge.litert', module: 'litert-api'
-    }
-    implementation("com.volcengine:volcengine-java-sdk-ark-runtime:0.2.20")
-    implementation(libs.material)
-    // OkHttp 网络库
+    implementation libs.androidx.camera.core
+    implementation libs.androidx.camera.camera2
+    implementation libs.androidx.camera.lifecycle
+    implementation libs.androidx.camera.view
+
+    // TensorFlow Lite —— 统一使用旧版，避免 LiteRT 冲突
+    implementation 'org.tensorflow:tensorflow-lite:2.13.0'
+    implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+    implementation 'org.tensorflow:tensorflow-lite-gpu:2.13.0'
+    implementation 'org.tensorflow:tensorflow-lite-task-vision:0.4.4'
+    implementation 'org.tensorflow:tensorflow-lite-gpu-delegate-plugin:0.4.4'
+
+    // 其他三方库
+    implementation 'com.volcengine:volcengine-java-sdk-ark-runtime:0.2.20'
+    implementation libs.material
     implementation libs.okhttp
-    // Gson 解析库
     implementation libs.gson
-    // 其他
     implementation files('libs/AMapLocation_6.4.9_20241226.aar')
-    implementation(libs.oboe)
+    implementation libs.oboe
     implementation libs.media3.exoplayer
     implementation libs.androidx.constraintlayout
     implementation libs.tensorflow.lite.metadata
     implementation libs.androidx.preference.ktx
-    implementation(libs.androidx.multidex) // 添加 multidex 依赖
+    implementation libs.androidx.multidex
+
+    // 测试
     testImplementation libs.junit
     androidTestImplementation libs.androidx.junit
     androidTestImplementation libs.androidx.espresso.core

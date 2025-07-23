@@ -74,7 +74,7 @@ class FallDetector(
         @JvmField
         var isFallDetected = false // 是否检测到跌倒
         internal const val IMPACT_THRESHOLD = 30f // 碰撞阈值
-        internal const val FREE_FALL_THRESHOLD = 2.5f // 自由落体阈值
+        internal const val FREE_FALL_THRESHOLD = 6f // 自由落体阈值
         internal const val RECOVERY_TIME = 3000L // 恢复时间
         internal const val CONFIRMATION_TIME = 1000L // 确认时间
         internal var lastAcceleration = 9.8f // 上一次的加速度值

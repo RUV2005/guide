@@ -3,22 +3,25 @@ package com.danmo.guide.ui.main
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlertDialog
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.speech.RecognitionListener
@@ -26,7 +29,6 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
 import android.view.View
-import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -60,7 +62,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.task.vision.detector.Detection
 import java.io.IOException
@@ -82,29 +83,29 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private var connectionState = ConnectionState.DISCONNECTED
     private var connectionStartTime = 0L
     private var isStreaming = false
-    private val streamHandler = Handler(Looper.getMainLooper())
     private val client = OkHttpClient()
     private lateinit var boundary: String
     private val TAG = "MjpegStream"
     private var leftoverData = ByteArray(0)
     private var streamingJob: Job? = null
     private var isCameraMode = true // true 表示内置摄像头模式，false 表示外置摄像头模式
-    private var hasStreamReadyDialogShown = false
     private var timerJob: Job? = null
     private val RECONNECT_DELAY = 5000L
     private val MAX_RETRIES = 5
-    private var retryCount = 0 // 添加重试计数器变量
+
     // 添加户外模式播报状态跟踪
     private var hasOutdoorModeAnnounced = false
 
     private companion object {
         const val LOCATION_PERMISSION_REQUEST_CODE = 1001
-        private var lastSpeakTime = 0L
         const val REQUEST_RECORD_AUDIO_PERMISSION = 1002
-        private const val INIT_DELAY = 300L
-        private const val RETRY_DELAY = 1000L
         private const val FILTER_WINDOW_SIZE = 5
         private const val STREAM_URL = "http://192.168.4.1:81/stream" // 视频流地址
+        // 放在类成员区
+        private val frameExecutor = Executors.newSingleThreadExecutor()
+
+        // 放在类内部，和 streamingJob、isStreaming 等同级
+        private val renderHandler = Handler(HandlerThread("RenderThread").apply { start() }.looper)
     }
 
     // 新增滤波相关变量
@@ -127,21 +128,18 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     private lateinit var cameraManager: CameraManager
     private lateinit var overlayView: OverlayView
     private lateinit var weatherManager: WeatherManager
-    private var isWeatherAnnounced = false
     private lateinit var fallDetector: FallDetector
     private lateinit var sensorManager: SensorManager
     var ttsService: TtsService? = null
     private var isTtsBound = false
     private var lastLightValue = 0f
     private var falseAlarmCancelCount = 0
-    private val accessibilityManager by lazy {
-        getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
-    }
     private var isUserMoving = false
     private var lastMovementTimestamp = 0L
     private val MOVEMENT_THRESHOLD = 2.5 // 移动检测阈值（m/s²）
     private val MOVEMENT_WINDOW = 5L // 移动判断时间窗口（5秒）
-    private var hasAnnouncedDelay = false
+    private lateinit var detectorHelper: ObjectDetectorHelper
+
     // 添加延迟播报处理器
     private val announcementHandler = Handler(Looper.getMainLooper())
     private val announcementRunnable = Runnable {
@@ -150,7 +148,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
 
     private fun applyLowPassFilter(currentValue: Double): Double {
         accelerationHistory.add(currentValue)
-        if (accelerationHistory.size > Companion.FILTER_WINDOW_SIZE) {
+        if (accelerationHistory.size > FILTER_WINDOW_SIZE) {
             accelerationHistory.removeAt(0)
         }
         return accelerationHistory.average()
@@ -184,15 +182,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         Log.d("Speech", "识别事件: $eventType")
     }
 
-    private fun isNetworkAvailable(): Boolean {
-        val connectivityManager =
-            getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        return connectivityManager.activeNetwork?.let {
-            connectivityManager.getNetworkCapabilities(it)
-                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        } ?: false
-    }
-
     // 创建单独的摄像头权限请求
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -202,17 +191,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                 showToast("需要摄像头权限才能使用视觉功能")
             }
         }
-
-    // 创建单独的麦克风权限请求
-    private val requestMicrophonePermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            if (isGranted) {
-                startVoiceRecognition()
-            } else {
-                showToast("需要麦克风权限才能使用语音功能")
-            }
-        }
-
 
 
     private fun checkCameraPermission() {
@@ -226,16 +204,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
-    private fun checkMicrophonePermission(callback: () -> Unit) {
-        when {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED -> callback()
-
-            else -> requestMicrophonePermission.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
     private val ttsConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as TtsService.TtsBinder
@@ -289,6 +257,12 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         AMapLocationClient.updatePrivacyShow(this, true, true)
         AMapLocationClient.updatePrivacyAgree(this, true)
 
+
+        // ✅ 2. 注册电池温度监听
+        registerReceiver(
+            batteryReceiver,
+            IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        )
         // 初始化后安排延迟播报
         ensureOutdoorModeAnnouncement()
 
@@ -417,23 +391,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     }
 
 
-    private fun checkVoicePermission(): Boolean {
-        return if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            true
-        } else {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.RECORD_AUDIO),
-                REQUEST_RECORD_AUDIO_PERMISSION
-            )
-            false
-        }
-    }
-
     private fun startLocationDetection(isWeatherButton: Boolean = false) {
         Log.d("LocationFlow", "尝试启动定位...")
         if (checkLocationPermission()) {
@@ -454,28 +411,12 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         Log.d("定位Debug", "address=${location.address}, district=${location.district}, city=${location.city}, street=${location.street}, latitude=${location.latitude}, longitude=${location.longitude}, errorCode=${location.errorCode}, errorInfo=${location.errorInfo}")
 
         val posText = listOfNotNull(location.district, location.street, location.city, location.address)
-            .firstOrNull { !it.isNullOrBlank() } ?: "未知位置"
+            .firstOrNull { it.isNotBlank() } ?: "未知位置"
         if (!isWeatherButton) {
             ttsService?.speak("当前位置：${location.address}")
         } else {
             getWeatherAndAnnounce(location.latitude, location.longitude, posText)
         }
-    }
-
-    suspend fun getAddressFromLatLng(lat: Double, lon: Double): String {
-        val key = "你的高德Key"
-        val url = "https://restapi.amap.com/v3/geocode/regeo?location=$lon,$lat&key=$key"
-        val request = Request.Builder().url(url).build()
-        val client = OkHttpClient()
-        val response = client.newCall(request).execute()
-        if (response.isSuccessful) {
-            val json = response.body?.string() ?: return "未知位置"
-            val obj = JSONObject(json)
-            val regeocode = obj.optJSONObject("regeocode")
-            val formatted = regeocode?.optString("formatted_address")
-            return formatted ?: "未知位置"
-        }
-        return "未知位置"
     }
 
     override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
@@ -531,6 +472,18 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                     showToast("需要麦克风权限才能使用语音功能")
                 }
             }
+        }
+    }
+
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val temperature = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10f
+            val newMode = when {
+                temperature < 36f -> ObjectDetectorHelper.PowerMode.HIGH_ACCURACY
+                temperature < 38f -> ObjectDetectorHelper.PowerMode.BALANCED
+                else -> ObjectDetectorHelper.PowerMode.LOW_POWER
+            }
+            objectDetectorHelper.setPowerMode(newMode)
         }
     }
 
@@ -594,10 +547,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         ensureOutdoorModeAnnouncement()
     }
 
-    private fun isCameraInitialized(): Boolean {
-        return ::cameraManager.isInitialized && !cameraExecutor.isShutdown
-    }
-
     private fun initCameraResources() {
         // 确保执行器可用
         if (::cameraExecutor.isInitialized && cameraExecutor.isShutdown) {
@@ -640,7 +589,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     }
 
     // 在类变量区定义
-    val requestCallPermission =
+    private val requestCallPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (isGranted) {
                 fallDetector.triggerEmergencyCall()
@@ -694,20 +643,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
-    // 计算并设置视频流显示区域
-    private fun updateStreamDisplayRect() {
-        val displayRect = binding.overlayView.calculateStreamDisplayRect(
-            binding.streamView.width,
-            binding.streamView.height
-        )
-        binding.overlayView.setStreamDisplayRect(
-            displayRect.left,
-            displayRect.top,
-            displayRect.right,
-            displayRect.bottom
-        )
-    }
-
 
     // 修改现有的传感器处理
     @RequiresApi(Build.VERSION_CODES.O)
@@ -726,7 +661,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     // 在摇晃检测中
     private fun handleShakeDetection(event: SensorEvent) {
         val acceleration = event.values.let {
-            kotlin.math.sqrt(
+            sqrt(
                 it[0].toDouble().pow(2.0) +
                         it[1].toDouble().pow(2.0) +
                         it[2].toDouble().pow(2.0)
@@ -747,16 +682,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         } catch (e: Exception) {
             Log.e("Speech", "启动识别失败: ${e.message}")
             showToast("语音识别启动失败，请重试")
-        }
-    }
-
-    private fun stopVoiceRecognition() {
-        try {
-            speechRecognizer.stopListening()
-            isListening = false
-            binding.statusText.text = "语音识别已停止"
-        } catch (e: Exception) {
-            Log.e("Speech", "停止识别失败: ${e.message}")
         }
     }
 
@@ -1010,33 +935,28 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
-    private fun createAnalyzer(): ImageAnalysis.Analyzer {
-        return ImageAnalysis.Analyzer { imageProxy ->
-            if (!::cameraExecutor.isInitialized || cameraExecutor.isShutdown) {
+    private fun createAnalyzer(): ImageAnalysis.Analyzer =
+        ImageAnalysis.Analyzer { imageProxy ->
+            if (!isDetectionActive) {
                 imageProxy.close()
                 return@Analyzer
             }
 
-            cameraExecutor.submit {
-                try {
-                    if (!isDetectionActive) {
-                        imageProxy.close()
-                        return@submit
-                    }
-                    val bitmap = ImageProxyUtils.toBitmap(imageProxy) ?: return@submit
-                    val tensorImage = TensorImage.fromBitmap(bitmap)
-                    val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-                    val results = objectDetectorHelper.detect(tensorImage, rotationDegrees)
-                    overlayView.setModelInputSize(tensorImage.width, tensorImage.height)
-                    updateOverlayView(results, rotationDegrees)
-                    updateStatusUI(results)
-                    handleDetectionResults(results)
-                } finally {
-                    imageProxy.close()
+            lifecycleScope.launch(Dispatchers.IO) {
+                val bitmap = ImageProxyUtils.toBitmap(imageProxy) ?: return@launch
+                val tensorImage = TensorImage.fromBitmap(bitmap)
+                val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+                val results = withContext(objectDetectorHelper.gpuThread) {
+                    objectDetectorHelper.detect(tensorImage, rotationDegrees)
                 }
+
+                overlayView.setModelInputSize(tensorImage.width, tensorImage.height)
+                updateOverlayView(results, rotationDegrees)
+                updateStatusUI(results)
+                handleDetectionResults(results)
+                imageProxy.close()
             }
         }
-    }
 
     override fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String) {
         lifecycleScope.launch(Dispatchers.IO) {
@@ -1136,8 +1056,9 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     }
 
     // 启动视频流
+    // 1. 启动流（保持不变）
     private fun startStream() {
-        if (isStreaming || !isCameraMode) return // 确保在正确模式下启动
+        if (isStreaming || isCameraMode) return
         isStreaming = true
 
         streamingJob = lifecycleScope.launch(Dispatchers.IO) {
@@ -1146,38 +1067,30 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                 try {
                     updateConnectionState(ConnectionState.CONNECTING)
                     retryCount = 0
-                    val request = Request.Builder()
-                        .url(STREAM_URL) // 直接使用STREAM_URL常量
-                        .build()
+                    val request = Request.Builder().url(STREAM_URL).build()
 
                     client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            throw IOException("Unexpected code ${response.code}")
-                        }
+                        if (!response.isSuccessful) throw IOException("Unexpected code ${response.code}")
                         updateConnectionState(ConnectionState.CONNECTED)
 
                         leftoverData = ByteArray(0)
-
                         val contentType = response.header("Content-Type") ?: ""
                         boundary = contentType.split("boundary=").last().trim()
-                        Log.d(TAG, "Using boundary: --$boundary")
 
                         response.body?.byteStream()?.let { stream ->
-                            parseMjpegStream(stream)
+                            parseMjpegStreamOptimized(stream)
                         }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Stream error: ${e.message}")
-
                     if (++retryCount > MAX_RETRIES) {
                         updateConnectionState(ConnectionState.DISCONNECTED)
                         showToast("Max retries reached")
                         isStreaming = false
                         return@launch
                     }
-
                     if (isStreaming) {
-                        showToast("正在重连... Attempt $retryCount/$MAX_RETRIES")
+                        showToast("正在重连... $retryCount/$MAX_RETRIES")
                         delay(RECONNECT_DELAY)
                     }
                 }
@@ -1185,80 +1098,80 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         }
     }
 
+    // 2. 解析 MJPEG（后台线程）
+    private fun parseMjpegStreamOptimized(stream: InputStream) {
+        val buffer = ByteArray(4096)
+        leftoverData = ByteArray(0)
+        while (isStreaming && !Thread.currentThread().isInterrupted) {
+            val len = stream.read(buffer)
+            if (len == -1) break
+            val data = leftoverData + buffer.copyOfRange(0, len)
+            leftoverData = processFrameBuffer(data)
+        }
+    }
+
+
+
+    // 3. 处理一帧数据
+    private fun processFrameBuffer(data: ByteArray): ByteArray {
+        var pos = 0
+        while (true) {
+            val boundaryIdx = findBoundary(data, pos)
+            if (boundaryIdx == -1) return data.copyOfRange(pos, data.size)
+
+            val section = data.copyOfRange(boundaryIdx, data.size)
+            val headerEnd = findHeaderEnd(section)
+            if (headerEnd == -1) return section
+
+            val headers = String(section, 0, headerEnd)
+            val contentLen = extractContentLength(headers)
+            if (contentLen <= 0) return section
+
+            val imgStart = headerEnd + 4
+            val imgEnd = imgStart + contentLen
+            if (imgEnd > section.size) return section
+
+            val imgData = section.copyOfRange(imgStart, imgEnd)
+            if (isValidJpeg(imgData)) renderFrame(imgData)
+
+            pos = boundaryIdx + imgEnd
+        }
+    }
+
+    // 4. 解码 + 渲染（后台线程 → 主线程）
+    private fun renderFrame(imgData: ByteArray) {
+        renderHandler.post {
+            val opts = BitmapFactory.Options().apply {
+                inPreferredConfig = Bitmap.Config.RGB_565
+                inSampleSize = 1
+            }
+            val bmp = BitmapFactory.decodeByteArray(imgData, 0, imgData.size, opts) ?: return@post
+
+            // 1. 先显示
+            binding.streamView.post { binding.streamView.setImageBitmap(bmp) }
+
+            // 2. 后台识别（协程）
+            lifecycleScope.launch(Dispatchers.IO) {
+                val tensorImage = TensorImage.fromBitmap(bmp)
+                val results = withContext(objectDetectorHelper.gpuThread) {
+                    objectDetectorHelper.detect(tensorImage, 0)
+                }
+
+                withContext(Dispatchers.Main) {
+                    overlayView.setModelInputSize(bmp.width, bmp.height)
+                    updateOverlayView(results, 0)
+                    updateStatusUI(results)
+                }
+            }
+        }
+    }
+
+
     // 停止视频流
     private fun stopStream() {
         isStreaming = false
         streamingJob?.cancel()
         updateConnectionState(ConnectionState.DISCONNECTED)
-    }
-
-    // 解析MJPEG流
-    private fun parseMjpegStream(stream: InputStream) {
-        val readBuffer = ByteArray(4096)
-        if (!isStreaming) return
-        try {
-            while (isStreaming) {
-                val bytesRead = stream.read(readBuffer)
-                if (bytesRead == -1) {
-                    Log.d(TAG, "End of stream reached")
-                    throw IOException("Stream ended unexpectedly")
-                }
-
-                val data = leftoverData + readBuffer.copyOfRange(0, bytesRead)
-                processData(data)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Stream read error: ${e.message}")
-            throw e
-        }
-    }
-
-    private fun processData(data: ByteArray) {
-        var processedIndex = 0
-        while (true) {
-            val boundaryIndex = findBoundary(data, processedIndex)
-            if (boundaryIndex == -1) break
-
-            val sectionData = data.copyOfRange(boundaryIndex, data.size)
-            val headerEndIndex = findHeaderEnd(sectionData)
-
-            if (headerEndIndex == -1) {
-                leftoverData = sectionData
-                return
-            }
-
-            val headers = String(sectionData, 0, headerEndIndex)
-            val contentLength = extractContentLength(headers)
-            if (contentLength == -1) {
-                Log.e(TAG, "Invalid com.danmo.guide.ui.room.Content-Length")
-                return
-            }
-
-            val imageStart = headerEndIndex + 4
-            val imageEnd = imageStart + contentLength
-
-            if (imageEnd > sectionData.size) {
-                leftoverData = sectionData
-                return
-            }
-
-            val imageData = sectionData.copyOfRange(imageStart, imageEnd)
-            if (isValidJpeg(imageData)) {
-                displayImage(imageData)
-                // 在这里调用图像识别逻辑
-                if (!isCameraMode) {
-                    val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
-                    bitmap?.let {
-                        val tensorImage = TensorImage.fromBitmap(bitmap)
-                        val results = objectDetectorHelper.detect(tensorImage, 0) // 假设视频流不需要旋转
-                        handleDetectionResultsFromStream(results)
-                    }
-                }
-            }
-
-            processedIndex = boundaryIndex + imageEnd
-        }
-        leftoverData = data.copyOfRange(processedIndex, data.size)
     }
 
     private fun handleDetectionResultsFromStream(results: List<Detection>) {
@@ -1275,30 +1188,6 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                     DetectionProcessor.getInstance(this).handleDetectionResult(detection)
                 }
             }
-    }
-
-    // 显示图像帧
-    private fun displayImage(imageData: ByteArray) {
-        try {
-            val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
-            bitmap?.let {
-                // 设置模型输入尺寸为视频流原始分辨率
-                binding.overlayView.setModelInputSize(it.width, it.height)
-
-                runOnUiThread {
-                    binding.streamView.setImageBitmap(bitmap)
-                }
-
-                // 图像识别逻辑
-                if (!isCameraMode && isDetectionActive) {
-                    val tensorImage = TensorImage.fromBitmap(bitmap)
-                    val results = objectDetectorHelper.detect(tensorImage, 0)
-                    handleDetectionResultsFromStream(results)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Image processing error: ${e.message}")
-        }
     }
 
     // 查找边界
