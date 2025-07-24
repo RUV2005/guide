@@ -49,7 +49,7 @@ class MessageQueueManager {
 
     init {
         // 每2秒检查队列状态
-        queueSizeMonitor.scheduleAtFixedRate({
+        queueSizeMonitor.scheduleWithFixedDelay({
             val currentTime = System.currentTimeMillis()
             val staleness = currentTime - lastProcessTime
 
@@ -294,10 +294,4 @@ class MessageQueueManager {
         }
     }
 
-    // 关闭资源
-    fun shutdown() {
-        executor.shutdown()  // 关闭线程池
-        queueSizeMonitor.shutdownNow() // 关闭监控器
-        clearQueue()
-    }
 }

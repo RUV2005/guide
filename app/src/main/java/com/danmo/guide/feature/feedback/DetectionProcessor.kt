@@ -10,6 +10,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 private const val POSITION_CHANGE_COOLDOWN = 2000L
+private var imageWidth = 320f // 默认模型输入尺寸
+private var imageHeight = 320f
 
 class DetectionProcessor {
     private val pendingDetections = ConcurrentLinkedQueue<Detection>()
@@ -27,27 +29,23 @@ class DetectionProcessor {
         var lastReportTime: Long = 0,
         var speedFactor: Float = 1.0f
     )
+    // 在收到检测结果时更新图像尺寸
+    fun updateImageDimensions(width: Int, height: Int) {
+        imageWidth = width.toFloat()
+        imageHeight = height.toFloat()
+    }
 
     companion object {
         private const val BATCH_INTERVAL_MS = 500L
         private const val MIN_REPORT_INTERVAL_MS = 1000L
         private const val DEFAULT_CONFIDENCE_THRESHOLD = 0.4f
         private val DANGEROUS_LABELS = setOf("car", "person", "bus", "truck", "motorcycle", "bicycle","traffic light")
-        private const val COLUMN_1 = 1f / 3f
-        private const val COLUMN_2 = 2f / 3f
-        private const val ROW_1 = 0.5f
 
         // 大区域定义
         private val superRegions = mapOf(
             "左侧" to setOf("左远侧", "左近侧"),
             "正前方" to setOf("正远方", "正前方"),
             "右侧" to setOf("右前侧", "右近侧")
-        )
-
-        // 方向矩阵
-        private val directionNames = arrayOf(
-            arrayOf("左远侧", "正远方", "右前侧"),
-            arrayOf("左近侧", "正前方", "右近侧")
         )
 
         @SuppressLint("StaticFieldLeak")
@@ -300,22 +298,36 @@ class DetectionProcessor {
 
     // 方向计算逻辑
     private fun calculateDirection(box: RectF): String {
-        if (!::context.isInitialized) return "未知"
+        if (imageWidth <= 0 || imageHeight <= 0) return "未知"
 
-        val displayMetrics = context.resources.displayMetrics
-        val screenWidth = displayMetrics.widthPixels.toFloat()
-        val screenHeight = displayMetrics.heightPixels.toFloat()
+        // 使用图像实际尺寸归一化
+        val centerX = box.centerX() / imageWidth
+        val centerY = box.centerY() / imageHeight
 
-        val centerX = box.centerX() / screenWidth
-        val centerY = box.centerY() / screenHeight
-
-        val col = when {
-            centerX < COLUMN_1 -> 0
-            centerX < COLUMN_2 -> 1
-            else -> 2
+        // 更精确的区域划分算法
+        return when {
+            centerX < 0.3 -> {
+                when {
+                    centerY < 0.4 -> "左远侧"
+                    centerY < 0.7 -> "左近侧"
+                    else -> "左近侧" // 底部区域
+                }
+            }
+            centerX < 0.7 -> {
+                when {
+                    centerY < 0.4 -> "正远方"
+                    centerY < 0.7 -> "正前方"
+                    else -> "正前方" // 底部区域
+                }
+            }
+            else -> {
+                when {
+                    centerY < 0.4 -> "右前侧"
+                    centerY < 0.7 -> "右近侧"
+                    else -> "右近侧" // 底部区域
+                }
+            }
         }
-        val row = if (centerY < ROW_1) 0 else 1
-        return directionNames[row][col]
     }
 
     private fun getDirectionPriority(direction: String): MessageQueueManager.MsgPriority {
@@ -348,10 +360,4 @@ class DetectionProcessor {
         }
     }
 
-    fun shutdown() {
-        batchProcessor.shutdown()
-        contextMemory.clear()
-        positionMemory.clear()
-        positionChangeTimes.clear()
-    }
 }

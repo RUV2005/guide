@@ -54,11 +54,4 @@ class VibrationManager(context: Context) {
             }
         } ?: Log.d("Vibration", "设备不支持振动功能 No vibration capability")
     }
-    /**
-     * 取消当前振动
-     * Cancel current vibration
-     */
-    fun cancel() {
-        vibrator?.cancel() // 安全调用取消 / Safe call to cancel
-    }
 }

@@ -71,13 +71,11 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     }
     fun processNextInQueue() {
         if (speechQueue.isEmpty() || !isTtsReady) return
-        val (nextText, isImmediate) = speechQueue.poll()
+        val (nextText, isImmediate) = speechQueue.poll()!!
         val utteranceId = UUID.randomUUID().toString()
         tts.speak(nextText, TextToSpeech.QUEUE_ADD, null, utteranceId)
     }
-    private fun stopCurrent() {
-        tts.stop()
-    }
+
     override fun onDestroy() {
         super.onDestroy()
         Log.d("TtsService", "Service destroyed")

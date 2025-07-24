@@ -4,7 +4,6 @@ import android.content.Context
 import org.tensorflow.lite.task.vision.detector.Detection
 class FeedbackManager(context: Context) {
     private val ttsManager = TTSManager.getInstance(context)
-    private val vibrationManager = VibrationManager.getInstance(context)
     private val messageQueueManager = MessageQueueManager.getInstance(context.applicationContext)
     private val detectionProcessor = DetectionProcessor.getInstance(context.applicationContext)
     companion object {
@@ -48,23 +47,9 @@ class FeedbackManager(context: Context) {
         ttsManager.updateLanguage(languageCode)
         messageQueueManager.clearQueue()
     }
-    fun enqueueWeatherAnnouncement(text: String) {
-        messageQueueManager.enqueueMessage(
-            message = text,
-            direction = "",
-            priority = MessageQueueManager.MsgPriority.HIGH,
-            label = "weather",
-            vibrationPattern = longArrayOf(100)
-        )
-    }
+
     fun clearQueue() {
         messageQueueManager.clearQueue()
         ttsManager.stop()
-    }
-    fun shutdown() {
-        ttsManager.shutdown()
-        vibrationManager.cancel()
-        messageQueueManager.shutdown()
-        detectionProcessor.shutdown()
     }
 }

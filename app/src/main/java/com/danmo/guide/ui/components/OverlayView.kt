@@ -2,6 +2,7 @@ package com.danmo.guide.ui.components
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
@@ -9,162 +10,127 @@ import android.view.View
 import android.view.accessibility.AccessibilityEvent
 import org.tensorflow.lite.task.vision.detector.Detection
 
-class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs) {
-    private var boxPaint: Paint? = null
-    private var textPaint: Paint? = null
-    private var detections: List<Detection>? = null
+class OverlayView @JvmOverloads constructor(
+    context: Context, attrs: AttributeSet? = null
+) : View(context, attrs) {
+
+    // 画笔
+    private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.RED
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 42f
+    }
+
+    // 数据
+    private var detections: List<Detection> = emptyList()
     private var rotationDegrees = 0
-    private var width = 0
-    private var height = 0
-    private var modelInputWidth: Float = 0f
-    private var modelInputHeight: Float = 0f
+    private var modelW = 1
+    private var modelH = 1
 
-    // 新增：视频流显示区域
-    private var streamDisplayRect = RectF()
+    // 双模式
     private var isStreamMode = false
+    private val streamRect = RectF()
 
-    init {
-        initPaint()
-    }
-
-    private fun initPaint() {
-        boxPaint = Paint().apply {
-            color = -0xff0100
-            style = Paint.Style.STROKE
-            strokeWidth = 5f
-        }
-        textPaint = Paint().apply {
-            color = -0x1
-            textSize = 50f
-            isAntiAlias = true
-        }
-    }
-
-    fun updateDetections(detections: List<Detection>, rotationDegrees: Int) {
-        this.detections = detections
-        this.rotationDegrees = rotationDegrees
+    // 对外接口
+    fun updateDetections(list: List<Detection>, rotation: Int) {
+        detections = list
+        rotationDegrees = rotation
         invalidate()
     }
 
-    fun setModelInputSize(width: Int, height: Int) {
-        modelInputWidth = width.toFloat()
-        modelInputHeight = height.toFloat()
+    fun setModelInputSize(w: Int, h: Int) {
+        modelW = w
+        modelH = h
     }
 
-    // 新增：设置视频流显示区域
-    fun setStreamDisplayRect(left: Float, top: Float, right: Float, bottom: Float) {
-        streamDisplayRect.set(left, top, right, bottom)
+    fun setStreamDisplayRect(rect: RectF) {
+        streamRect.set(rect)
         isStreamMode = true
     }
 
-    // 新增：重置为内置摄像头模式
     fun resetToCameraMode() {
         isStreamMode = false
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        this.width = w
-        this.height = h
-
-    }
-
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        detections?.forEach { detection ->
-            val boundingBox = detection.boundingBox
-            adjustBoundingBoxForRotation(boundingBox)
-            applyScalingToBoundingBox(boundingBox)
-            drawDetection(canvas, boundingBox, detection)
+        if (detections.isEmpty()) return
+
+        val scaleX: Float
+        val scaleY: Float
+        val offsetX: Float
+        val offsetY: Float
+
+        // 1️⃣ 根据模式计算缩放
+        if (isStreamMode) {
+            // 外置视频流：按实际显示区域缩放
+            scaleX = streamRect.width() / modelW
+            scaleY = streamRect.height() / modelH
+            offsetX = streamRect.left
+            offsetY = streamRect.top
+        } else {
+            // 内置摄像头：全屏缩放
+            scaleX = width.toFloat() / modelW
+            scaleY = height.toFloat() / modelH
+            offsetX = 0f
+            offsetY = 0f
         }
-        // 如果有检测结果，通知读屏器
-        if (detections?.isNotEmpty() == true) {
+
+        // 2️⃣ 绘制框
+        detections.forEach { det ->
+            val box = RectF(det.boundingBox)
+
+            // 3️⃣ 旋转映射（90/180/270°）
+            val mapped = when (rotationDegrees) {
+                90  -> RectF(offsetX + box.top    * scaleX,
+                    offsetY + (modelH - box.right) * scaleY,
+                    offsetX + box.bottom * scaleX,
+                    offsetY + (modelH - box.left)  * scaleY)
+
+                180 -> RectF(offsetX + (modelW - box.right) * scaleX,
+                    offsetY + (modelH - box.bottom) * scaleY,
+                    offsetX + (modelW - box.left)  * scaleX,
+                    offsetY + (modelH - box.top)    * scaleY)
+
+                270 -> RectF(offsetX + (modelW - box.bottom) * scaleX,
+                    offsetY + box.left     * scaleY,
+                    offsetX + (modelW - box.top)    * scaleX,
+                    offsetY + box.right    * scaleY)
+
+                else -> RectF(offsetX + box.left   * scaleX,
+                    offsetY + box.top    * scaleY,
+                    offsetX + box.right  * scaleX,
+                    offsetY + box.bottom * scaleY)
+            }
+
+            canvas.drawRect(mapped, boxPaint)
+            det.categories.firstOrNull()?.label?.let {
+                canvas.drawText(it, mapped.left, mapped.top - 10, textPaint)
+            }
+        }
+
+        // 4️⃣ 读屏提示
+        if (detections.isNotEmpty()) {
             announceForAccessibility("检测到物体")
         }
     }
 
-    private fun adjustBoundingBoxForRotation(boundingBox: RectF) {
-        when (rotationDegrees) {
-            90 -> {
-                val tempLeft = boundingBox.left
-                boundingBox.left = boundingBox.top
-                boundingBox.top = height - boundingBox.right
-                boundingBox.right = boundingBox.bottom
-                boundingBox.bottom = height - tempLeft
-            }
-            180 -> {
-                boundingBox.left = width - boundingBox.right
-                boundingBox.top = height - boundingBox.bottom
-                boundingBox.right = width - boundingBox.left
-                boundingBox.bottom = height - boundingBox.top
-            }
-            270 -> {
-                val tempLeft = boundingBox.left
-                boundingBox.left = width - boundingBox.bottom
-                boundingBox.top = tempLeft
-                boundingBox.right = width - boundingBox.top
-                boundingBox.bottom = boundingBox.right
-            }
-        }
-    }
-
-    private fun applyScalingToBoundingBox(boundingBox: RectF) {
-        if (modelInputWidth == 0f || modelInputHeight == 0f) {
-            return
-        }
-
-        // 新增：根据模式使用不同的缩放方式
-        if (isStreamMode) {
-            // 视频流模式：基于实际显示区域缩放
-            val scaleX = streamDisplayRect.width() / modelInputWidth
-            val scaleY = streamDisplayRect.height() / modelInputHeight
-
-            // 将边界框映射到实际显示区域
-            boundingBox.left = streamDisplayRect.left + boundingBox.left * scaleX
-            boundingBox.top = streamDisplayRect.top + boundingBox.top * scaleY
-            boundingBox.right = streamDisplayRect.left + boundingBox.right * scaleX
-            boundingBox.bottom = streamDisplayRect.top + boundingBox.bottom * scaleY
+    // 计算外置视频流在 Overlay 中的实际显示区域（4:3 → 任意 View）
+    fun calculateStreamDisplayRect(vw: Int, vh: Int): RectF {
+        val ratio = 4f / 3f
+        val viewRatio = vw.toFloat() / vh
+        return if (viewRatio > ratio) {
+            val h = vw / ratio
+            val top = (vh - h) / 2
+            RectF(0f, top, vw.toFloat(), top + h)
         } else {
-            // 内置摄像头模式：全屏缩放
-            val scaleX = width / modelInputWidth
-            val scaleY = height / modelInputHeight
-
-            boundingBox.left *= scaleX
-            boundingBox.top *= scaleY
-            boundingBox.right *= scaleX
-            boundingBox.bottom *= scaleY
+            val w = vh * ratio
+            val left = (vw - w) / 2
+            RectF(left, 0f, left + w, vh.toFloat())
         }
-    }
-
-    private fun drawDetection(canvas: Canvas, rect: RectF, detection: Detection) {
-        canvas.drawRect(rect, boxPaint!!)
-        detection.categories.firstOrNull()?.label?.let { label ->
-            canvas.drawText(label, rect.left, rect.top - 10, textPaint!!)
-        }
-    }
-
-
-
-    // 新增：计算视频流实际显示区域
-    fun calculateStreamDisplayRect(viewWidth: Int, viewHeight: Int): RectF {
-        // 视频流原始比例 (4:3)
-        val streamAspectRatio = 4f / 3f
-        val viewAspectRatio = viewWidth.toFloat() / viewHeight.toFloat()
-
-        val displayRect = RectF()
-
-        if (viewAspectRatio > streamAspectRatio) {
-            // 视图更宽，视频流在视图中上下留黑
-            val displayHeight = viewWidth / streamAspectRatio
-            val top = (viewHeight - displayHeight) / 2
-            displayRect.set(0f, top, viewWidth.toFloat(), top + displayHeight)
-        } else {
-            // 视图更高，视频流在视图中左右留黑
-            val displayWidth = viewHeight * streamAspectRatio
-            val left = (viewWidth - displayWidth) / 2
-            displayRect.set(left, 0f, left + displayWidth, viewHeight.toFloat())
-        }
-
-        return displayRect
     }
 }
