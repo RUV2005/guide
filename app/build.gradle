@@ -136,6 +136,8 @@ dependencies {
 
     // 其他三方库
     implementation 'com.volcengine:volcengine-java-sdk-ark-runtime:0.2.20'
+    implementation libs.vosk
+    implementation libs.jna
     implementation libs.material
     implementation libs.okhttp
     implementation libs.gson

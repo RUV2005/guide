@@ -2,6 +2,7 @@
 agp = "8.7.3"
 constraintlayout = "2.2.0"
 gson = "2.10.1"
+jna = "5.10.0"
 kotlin = "2.0.0"
 coreKtx = "1.15.0"
 junit = "4.13.2"
@@ -31,11 +32,13 @@ tensorflowLiteMetadata = "0.1.0"
 firebaseFirestoreKtx = "25.1.2"
 preferenceKtx = "1.2.1"
 tensorflowLiteVersion = "2.13.0"
+vosk = "0.3.45"
 [libraries]
 androidx-constraintlayout = { module = "androidx.constraintlayout:constraintlayout", version.ref = "constraintlayout" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-multidex = { module = "androidx.multidex:multidex", version.ref = "multidex" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
+jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
@@ -72,6 +75,7 @@ tensorflow-lite-metadata = { group = "org.tensorflow", name = "tensorflow-lite-m
 firebase-firestore-ktx = { group = "com.google.firebase", name = "firebase-firestore-ktx", version.ref = "firebaseFirestoreKtx" }
 androidx-preference-ktx = { group = "androidx.preference", name = "preference-ktx", version.ref = "preferenceKtx" }
 tensorflow-lite-v2130 = { module = "org.tensorflow:tensorflow-lite", version.ref = "tensorflowLiteVersion" }
+vosk = { module = "com.alphacephei:vosk-android", version.ref = "vosk" }
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

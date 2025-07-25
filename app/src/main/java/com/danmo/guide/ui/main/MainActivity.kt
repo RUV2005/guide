@@ -24,9 +24,6 @@
     import android.os.HandlerThread
     import android.os.IBinder
     import android.os.Looper
-    import android.speech.RecognitionListener
-    import android.speech.RecognizerIntent
-    import android.speech.SpeechRecognizer
     import android.util.Log
     import android.view.View
     import android.widget.Toast
@@ -49,6 +46,8 @@
     import com.danmo.guide.feature.feedback.DetectionProcessor
     import com.danmo.guide.feature.feedback.FeedbackManager
     import com.danmo.guide.feature.location.LocationManager
+    import com.danmo.guide.feature.vosk.VoskRecognizerManager
+    import com.danmo.guide.feature.vosk.VoskRecognizerManager.init
     import com.danmo.guide.feature.weather.WeatherManager
     import com.danmo.guide.ui.components.OverlayView
     import com.danmo.guide.ui.read.ReadOnlineActivity
@@ -64,6 +63,7 @@
     import okhttp3.Request
     import org.tensorflow.lite.support.image.TensorImage
     import org.tensorflow.lite.task.vision.detector.Detection
+    import org.vosk.android.RecognitionListener
     import java.io.IOException
     import java.io.InputStream
     import java.util.Locale
@@ -75,11 +75,10 @@
 
     class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         SensorEventListener, LocationManager.LocationCallback, FallDetector.WeatherCallback,
-        RecognitionListener {
+        RecognitionListener {  // 使用 Vosk 的 RecognitionListener
 
         // 视频流相关变量
         private enum class ConnectionState { CONNECTING, CONNECTED, DISCONNECTED }
-
         private var connectionState = ConnectionState.DISCONNECTED
         private var connectionStartTime = 0L
         private var isStreaming = false
@@ -114,7 +113,6 @@
 
         // 新增语音控制相关变量
         private var isDetectionActive = true // 初始状态为开启检测
-        private lateinit var speechRecognizer: SpeechRecognizer
         private lateinit var recognizerIntent: Intent
         private var isListening = false
         private var lastShakeTime = 0L
@@ -151,33 +149,6 @@
             return accelerationHistory.average()
         }
 
-        // region 语音识别回调方法
-        override fun onReadyForSpeech(params: Bundle?) {
-            Log.d("Speech", "语音识别准备就绪")
-            binding.statusText.text = "请开始说话"
-        }
-
-        override fun onBeginningOfSpeech() {
-            Log.d("Speech", "开始说话")
-            binding.statusText.text = "正在聆听..."
-        }
-
-        override fun onRmsChanged(rmsdB: Float) {
-            // 可在此处添加音量波动动画
-        }
-
-        override fun onBufferReceived(buffer: ByteArray?) {
-            Log.d("Speech", "收到音频缓冲")
-        }
-
-        override fun onEndOfSpeech() {
-            Log.d("Speech", "结束说话")
-            isListening = false
-        }
-
-        override fun onEvent(eventType: Int, params: Bundle?) {
-            Log.d("Speech", "识别事件: $eventType")
-        }
 
         // 创建单独的摄像头权限请求
         private val requestCameraPermission =
@@ -266,7 +237,6 @@
             initBasicComponents()
             initFallDetection()
             bindTtsService()
-            initializeSpeechRecognizer()
 
             // 添加摄像头切换按钮
             binding.fabSwitchCamera.setOnClickListener {
@@ -292,14 +262,13 @@
             binding.fabVoiceCall.setOnClickListener {
                 startVoiceCallActivity()
             }
+            // 初始化 Vosk
+            VoskRecognizerManager.init(this@MainActivity)  // 直接调用单例方法
         }
 
         // 添加 handleVoiceCommand 方法
         private fun handleVoiceCommand() {
             when {
-                !SpeechRecognizer.isRecognitionAvailable(this) -> {
-                    showToast("该设备不支持语音识别")
-                }
                 ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.RECORD_AUDIO
@@ -333,28 +302,6 @@
         }
 
 
-        private fun initializeSpeechRecognizer() {
-            try {
-                if (SpeechRecognizer.isRecognitionAvailable(this)) {
-                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
-                        setRecognitionListener(this@MainActivity)
-                    }
-                    recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                        putExtra(
-                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                        )
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().language)
-                        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    }
-                } else {
-                    showToast("该设备不支持语音识别")
-                }
-            } catch (e: Exception) {
-                Log.e("VoiceControl", "语音初始化失败", e)
-                showToast("语音功能初始化失败")
-            }
-        }
 
         private fun handleMovementDetection(event: SensorEvent) {
             val currentTime = System.currentTimeMillis()
@@ -467,6 +414,7 @@
                         startVoiceRecognition()
                     } else {
                         showToast("需要麦克风权限才能使用语音功能")
+                        ttsService?.speak("未获得麦克风权限，无法进行语音识别")
                     }
                 }
             }
@@ -671,62 +619,135 @@
             }
         }
 
+        /**
+         * 启动语音识别（带权限检查、防重复初始化、异常捕获）
+         */
         private fun startVoiceRecognition() {
-            try {
-                speechRecognizer.startListening(recognizerIntent)
-                isListening = true
-                binding.statusText.text = "正在聆听..."
-                ttsService?.speak("您请说", true)
-            } catch (e: Exception) {
-                Log.e("Speech", "启动识别失败: ${e.message}")
-                showToast("语音识别启动失败，请重试")
+            if (ttsService?.isSpeaking == true) {
+                Log.d("Speech", "TTS 播放中，本次不启动识别")
+                return
+            }
+            // 1. 权限检查
+            when {
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.RECORD_AUDIO
+                ) != PackageManager.PERMISSION_GRANTED -> {
+                    ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf(Manifest.permission.RECORD_AUDIO),
+                        REQUEST_RECORD_AUDIO_PERMISSION
+                    )
+                    return
+                }
+
+                else -> {
+                    // 2. 延迟 500ms，避免系统资源未释放
+                    lifecycleScope.launch(Dispatchers.Main) {
+                        delay(500)
+
+                        // 3. 确保先释放旧资源
+                        VoskRecognizerManager.stopListening()
+                        VoskRecognizerManager.destroy()
+
+                        // 4. 重新初始化（确保只初始化一次）
+                        if (!VoskRecognizerManager.isInitialized) {
+                            VoskRecognizerManager.init(this@MainActivity)
+                        }
+
+                        // 5. 启动识别
+                        try {
+                            VoskRecognizerManager.startListening { result ->
+                                runOnUiThread {
+                                    binding.statusText.text = "识别结果: $result"
+                                    processVoiceCommand(result)
+                                }
+                            }
+                            isListening = true
+                            binding.statusText.text = "正在聆听..."
+                            ttsService?.speak("您请说", true)
+                        } catch (e: Exception) {
+                            Log.e("Speech", "启动识别失败: ${e.message}")
+                            showToast("语音识别启动失败，请重试")
+                        }
+                    }
+                }
             }
         }
 
-        override fun onResults(results: Bundle?) {
-            results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.let {
-                if (it.isNotEmpty()) processVoiceCommand(it[0])
+
+
+        // 保留 UI，但不再调用 processVoiceCommand
+        override fun onPartialResult(hypothesis: String?) {
+            hypothesis?.let {
+                runOnUiThread {
+                    binding.statusText.text = "正在识别: $it"
+                }
+            }
+        }
+
+
+        override fun onResult(hypothesis: String?) {
+            hypothesis?.let {
+                Log.d("VOSK_FINAL", "最终结果: $it")
+                runOnUiThread {
+                    binding.statusText.text = "识别结果: $it"
+                    processVoiceCommand(it)
+                }
+            }
+        }
+
+        override fun onFinalResult(hypothesis: String?) {
+            // 最终结果处理
+        }
+
+        override fun onError(exception: Exception?) {
+            runOnUiThread {
+                binding.statusText.text = "识别错误: ${exception?.message}"
+            }
+        }
+
+        override fun onTimeout() {
+            runOnUiThread {
+                binding.statusText.text = "识别超时"
             }
         }
 
         private fun processVoiceCommand(command: String) {
-            val processed = command.lowercase(Locale.getDefault())
+            val trimmed = command.lowercase(Locale.getDefault())
+                .replace(" ", "")   // 去掉空格
+            Log.d("COMMAND", "处理后指令：'$trimmed'")
+            if (trimmed.isBlank()) return      // 直接丢弃空串
+            Log.d("COMMAND", "处理后指令：'$trimmed'")
             when {
-                processed.contains("我需要帮助") || processed.contains("救命") || processed.contains("sos") -> {
-                    triggerEmergencyCall()
-                }
+                trimmed.contains("我需要帮助") ||
+                        trimmed.contains("救命") ||
+                        trimmed.contains("sos") -> triggerEmergencyCall()
 
-                processed.contains("天气") || processed.contains("今日天气") -> handleWeatherCommand()
-                processed.contains("位置") || processed.contains("定位") -> handleLocationCommand()
-                processed.contains("帮助") || processed.contains("获取帮助") -> showVoiceHelp()
-                processed.contains("设置") || processed.contains("打开设置") -> openSettings()
-                processed.contains("退出") || processed.contains("退出应用") -> finish()
+                trimmed.contains("天气") -> handleWeatherCommand()
+                trimmed.contains("位置") ||
+                        trimmed.contains("定位") -> handleLocationCommand()
 
-                processed.contains("开始检测") || processed.contains("启动检测") -> {
-                    if (isDetectionActive) {
-                        ttsService?.speak("障碍物检测已经在运行中")
-                        binding.statusText.text = "检测已在运行"
-                    } else {
-                        startDetection()
-                    }
-                }
+                trimmed.contains("语音通话") ||
+                        trimmed.contains("聊天") -> startVoiceCallActivity()
 
-                processed.contains("暂停检测") || processed.contains("停止检测") -> {
-                    if (!isDetectionActive) {
-                        ttsService?.speak("障碍物检测已经处于暂停状态")
-                        binding.statusText.text = "检测已暂停"
-                    } else {
-                        pauseDetection()
-                    }
-                }
-                processed.contains("语音通话") || processed.contains("聊天") -> startVoiceCallActivity()
-                processed.contains("检测状态") || processed.contains("当前状态") -> {
+                trimmed.contains("场景描述") ||
+                        trimmed.contains("室内模式") -> startRoomActivity()
+
+                trimmed.contains("阅读模式") -> startReadOnlineActivity()
+
+                trimmed.contains("设置") -> openSettings()
+                trimmed.contains("退出") -> finish()
+
+                trimmed.contains("开始检测") -> startDetection()
+                trimmed.contains("暂停检测") -> pauseDetection()
+                trimmed.contains("检测状态") -> {
                     val status = if (isDetectionActive) "正在运行" else "已暂停"
                     ttsService?.speak("障碍物检测$status")
                 }
-                processed.contains("场景描述模式") || processed.contains("室内模式") -> startRoomActivity()
-                processed.contains("阅读模式") -> startReadOnlineActivity()
-                else -> ttsService?.speak("未识别指令，请说'帮助'查看可用指令")
+
+                trimmed.contains("帮助") -> showVoiceHelp()
+                else -> ttsService?.speak("未识别指令，请说“帮助”查看可用指令")
             }
         }
 
@@ -833,24 +854,6 @@
             binding.fabSettings.performClick()
         }
 
-        override fun onPartialResults(partialResults: Bundle?) {
-            partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.let {
-                if (it.isNotEmpty()) {
-                    binding.statusText.text = "正在识别: ${it[0]}"
-                }
-            }
-        }
-
-        override fun onError(error: Int) {
-            val errorMsg = when (error) {
-                SpeechRecognizer.ERROR_NO_MATCH -> "未识别到内容，请重试"
-                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "说话超时，请重试"
-                else -> "识别错误 (代码: $error)"
-            }
-            runOnUiThread {
-                binding.statusText.text = errorMsg
-            }
-        }
 
         override fun onDestroy() {
             super.onDestroy()
@@ -862,12 +865,6 @@
             stopStream()
 
             // 释放其他资源
-            if (::speechRecognizer.isInitialized) {
-                speechRecognizer.apply {
-                    stopListening()
-                    destroy()
-                }
-            }
             if (isTtsBound) {
                 unbindService(ttsConnection)
                 isTtsBound = false
@@ -878,6 +875,8 @@
             sensorManager.unregisterListener(this)
             // 移除所有待处理的播报任务
             announcementHandler.removeCallbacks(announcementRunnable)
+            // 释放 Vosk 资源
+            VoskRecognizerManager.destroy()
         }
 
         // 2. 光照传感器回调里开关闪光灯
