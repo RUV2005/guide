@@ -47,7 +47,6 @@
     import com.danmo.guide.feature.feedback.FeedbackManager
     import com.danmo.guide.feature.location.LocationManager
     import com.danmo.guide.feature.vosk.VoskRecognizerManager
-    import com.danmo.guide.feature.vosk.VoskRecognizerManager.init
     import com.danmo.guide.feature.weather.WeatherManager
     import com.danmo.guide.ui.components.OverlayView
     import com.danmo.guide.ui.read.ReadOnlineActivity
@@ -113,7 +112,6 @@
 
         // 新增语音控制相关变量
         private var isDetectionActive = true // 初始状态为开启检测
-        private lateinit var recognizerIntent: Intent
         private var isListening = false
         private var lastShakeTime = 0L
         private lateinit var locationManager: LocationManager
@@ -134,6 +132,7 @@
         private var lastMovementTimestamp = 0L
         private val MOVEMENT_THRESHOLD = 2.5 // 移动检测阈值（m/s²）
         private val MOVEMENT_WINDOW = 5L // 移动判断时间窗口（5秒）
+        private var isRecognitionStarting = false   // 防止重复点击
 
         // 添加延迟播报处理器
         private val announcementHandler = Handler(Looper.getMainLooper())
@@ -263,7 +262,10 @@
                 startVoiceCallActivity()
             }
             // 初始化 Vosk
-            VoskRecognizerManager.init(this@MainActivity)  // 直接调用单例方法
+            lifecycleScope.launch {
+                val ok = VoskRecognizerManager.initWithDownload(this@MainActivity)
+                if (!ok) showToast("模型初始化失败")
+            }
         }
 
         // 添加 handleVoiceCommand 方法
@@ -623,11 +625,13 @@
          * 启动语音识别（带权限检查、防重复初始化、异常捕获）
          */
         private fun startVoiceRecognition() {
+            if (isRecognitionStarting) return      // 已有任务在执行
             if (ttsService?.isSpeaking == true) {
                 Log.d("Speech", "TTS 播放中，本次不启动识别")
                 return
             }
-            // 1. 权限检查
+
+            // 权限检查
             when {
                 ContextCompat.checkSelfPermission(
                     this,
@@ -642,21 +646,26 @@
                 }
 
                 else -> {
-                    // 2. 延迟 500ms，避免系统资源未释放
+                    isRecognitionStarting = true
                     lifecycleScope.launch(Dispatchers.Main) {
-                        delay(500)
-
-                        // 3. 确保先释放旧资源
-                        VoskRecognizerManager.stopListening()
-                        VoskRecognizerManager.destroy()
-
-                        // 4. 重新初始化（确保只初始化一次）
-                        if (!VoskRecognizerManager.isInitialized) {
-                            VoskRecognizerManager.init(this@MainActivity)
-                        }
-
-                        // 5. 启动识别
                         try {
+                            // 1. 立即释放旧资源
+                            VoskRecognizerManager.stopListening()
+                            VoskRecognizerManager.destroy()
+
+                            // 2. 给系统 300 ms 释放麦克风
+                            delay(300)
+
+                            // 3. 确保模型已下载
+                            val ok = withContext(Dispatchers.IO) {
+                                VoskRecognizerManager.initWithDownload(this@MainActivity)
+                            }
+                            if (!ok) {
+                                showToast("模型下载或加载失败")
+                                return@launch
+                            }
+
+                            // 4. 启动识别
                             VoskRecognizerManager.startListening { result ->
                                 runOnUiThread {
                                     binding.statusText.text = "识别结果: $result"
@@ -666,9 +675,12 @@
                             isListening = true
                             binding.statusText.text = "正在聆听..."
                             ttsService?.speak("您请说", true)
+
                         } catch (e: Exception) {
-                            Log.e("Speech", "启动识别失败: ${e.message}")
+                            Log.e("Speech", "启动识别异常: ${e.message}")
                             showToast("语音识别启动失败，请重试")
+                        } finally {
+                            isRecognitionStarting = false
                         }
                     }
                 }
@@ -856,7 +868,6 @@
 
 
         override fun onDestroy() {
-            super.onDestroy()
 
             // 统一释放资源
             releaseCameraResources()
@@ -876,7 +887,9 @@
             // 移除所有待处理的播报任务
             announcementHandler.removeCallbacks(announcementRunnable)
             // 释放 Vosk 资源
+            VoskRecognizerManager.stopListening()
             VoskRecognizerManager.destroy()
+            super.onDestroy()
         }
 
         // 2. 光照传感器回调里开关闪光灯

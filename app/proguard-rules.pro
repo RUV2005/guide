@@ -23,4 +23,7 @@
  -dontwarn com.qweather.sdk.**
  -keep class com.qweather.sdk.** { *;}
  -keep class com.danmo.guide.ui.main.MainActivity { *; }
- -keep class com.danmo.guide.feature.update.VersionComparator { *; }
+# TensorFlow Lite GPU
+# TensorFlow Lite GPU 2.13.0 旧版兼容
+-dontwarn org.tensorflow.lite.gpu.GpuDelegateFactory$Options
+-dontwarn org.tensorflow.lite.gpu.GpuDelegateFactory$Options$GpuBackend

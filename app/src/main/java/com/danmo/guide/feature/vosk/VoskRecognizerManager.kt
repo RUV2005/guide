@@ -2,101 +2,142 @@ package com.danmo.guide.feature.vosk
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
+import org.vosk.android.SpeechService
 import java.io.File
-import java.util.Locale
+import java.io.IOException
+import java.security.MessageDigest
+import java.util.zip.ZipFile
 
 object VoskRecognizerManager {
 
-    private var recognizer: Recognizer? = null
+    private const val SIGN_URL = "https://dl.guangji.online/"
+    private const val MODEL_DIR_NAME = "vosk-model-small-cn-0.22"
+
     private var model: Model? = null
-    private var speechService: org.vosk.android.SpeechService? = null
-    var isInitialized = false
+    private var recognizer: Recognizer? = null
+    private var speechService: SpeechService? = null
 
-    fun init(context: Context, lang: String = Locale.getDefault().language): Boolean {
-        if (isInitialized) return true
+    var isInitialized: Boolean = false
+        private set
 
-        val modelDir = "vosk-model-small-${if (lang == "zh") "cn-0.22" else "en-0.15"}"
-        val modelPath = File(context.filesDir, modelDir)
+    /* 主入口：保证模型下载、校验、初始化 */
+    suspend fun initWithDownload(context: Context): Boolean = withContext(Dispatchers.IO) {
+        if (isInitialized) return@withContext true
 
-        Log.d("VOSK", "模型路径: ${modelPath.absolutePath}")
-        Log.d("VOSK", "模型存在? ${modelPath.exists()}  子文件: ${modelPath.list()?.joinToString()}")
+        val modelDir = File(context.filesDir, MODEL_DIR_NAME)
+        val readyFile = File(modelDir, ".ready")
 
-        if (!modelPath.exists()) {
-            copyAssetsFolder(context, modelDir, modelPath.absolutePath)
+        if (readyFile.exists()) return@withContext loadModel(modelDir.absolutePath)
+
+        val (url, etag) = fetchSignedUrl() ?: run {
+            Log.e("VOSK", "无法获取签名 URL 或 ETag")
+            return@withContext false
         }
-        model = Model(modelPath.absolutePath)
+
+        val tmpZip = File(context.filesDir, "model.zip")
+        try {
+            downloadFile(url, tmpZip)
+            if (!verifyETag(tmpZip, etag)) {
+                Log.e("VOSK", "ETag 校验失败")
+                return@withContext false
+            }
+            unzip(tmpZip, context.filesDir)
+            readyFile.createNewFile()
+            tmpZip.delete()
+        } catch (e: Exception) {
+            Log.e("VOSK", "模型下载或解压异常", e)
+            return@withContext false
+        }
+        return@withContext loadModel(modelDir.absolutePath)
+    }
+
+    /* ------------------ 网络 ------------------ */
+    private suspend fun fetchSignedUrl(): Pair<String, String>? = withContext(Dispatchers.IO) {
+        val client = OkHttpClient()
+        val request = Request.Builder().url(SIGN_URL).build()
+        client.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) return@withContext null
+            val json = JSONObject(resp.body?.string() ?: return@withContext null)
+            val url = json.optString("url")
+            val etag = json.optString("etag")
+            if (url.isNotBlank() && etag.isNotBlank()) url to etag else null
+        }
+    }
+
+    private suspend fun downloadFile(url: String, dest: File) = withContext(Dispatchers.IO) {
+        val client = OkHttpClient()
+        val request = Request.Builder().url(url).build()
+        client.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("下载失败 ${resp.code}")
+            resp.body?.byteStream()?.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+    }
+
+    private fun verifyETag(file: File, expectedETag: String): Boolean {
+        val md5 = MessageDigest.getInstance("MD5")
+            .digest(file.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        return md5.equals(expectedETag, ignoreCase = true)
+    }
+
+    private fun unzip(zipFile: File, targetDir: File) {
+        ZipFile(zipFile).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory }
+                .forEach { entry ->
+                    val outFile = File(targetDir, entry.name)
+                    outFile.parentFile?.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        outFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+        }
+    }
+
+    private fun loadModel(modelPath: String): Boolean {
+        if (isInitialized) return true
+        model = Model(modelPath)
         recognizer = Recognizer(model, 16000.0f)
         isInitialized = true
         return true
     }
 
+    /* ------------------ 识别控制 ------------------ */
     fun startListening(onResult: (String) -> Unit) {
         recognizer?.let { rec ->
-            speechService = org.vosk.android.SpeechService(rec, 16000.0f)
+            speechService = SpeechService(rec, 16000.0f)
             speechService?.startListening(object : RecognitionListener {
-                override fun onPartialResult(result: String) {
-                    // 处理部分识别结果
-                }
-
-                override fun onResult(result: String) {
-                    Log.d("VOSK_RAW", "原始 JSON: $result")
-                    try {
-                        val text = JSONObject(result).optString("text", "").trim()
-                        Log.d("VOSK_TEXT", "提取文本: '$text'")
-                        onResult(text)
-                    } catch (e: Exception) {
-                        Log.e("VOSK_JSON", "解析出错", e)
+                override fun onPartialResult(hypothesis: String?) {}
+                override fun onResult(hypothesis: String?) {
+                    hypothesis?.let {
+                        val text = JSONObject(it).optString("text", "").trim()
+                        if (text.isNotEmpty()) onResult(text)
                     }
                 }
-
-                override fun onFinalResult(result: String) {
-                    // 最终结果处理
-                }
-
-                override fun onError(exception: Exception) {
-                    // 错误处理
-                }
-
-                override fun onTimeout() {
-                    // 超时处理
-                }
+                override fun onFinalResult(hypothesis: String?) {}
+                override fun onError(exception: Exception?) {}
+                override fun onTimeout() {}
             })
         }
     }
 
-    fun stopListening() {
-        speechService?.stop()
-    }
-
-    fun destroy() {
-        speechService?.shutdown()
+    fun stopListening() = speechService?.stop()
+    fun destroy() = speechService?.shutdown().also {
         recognizer?.close()
         model?.close()
         recognizer = null
         model = null
         speechService = null
         isInitialized = false
-    }
-
-    private fun copyAssetsFolder(context: Context, assetPath: String, targetPath: String) {
-        val assetManager = context.assets
-        val files = assetManager.list(assetPath) ?: return
-        val targetDir = File(targetPath)
-        if (!targetDir.exists()) targetDir.mkdirs()
-        for (file in files) {
-            val assetFile = "$assetPath/$file"
-            val targetFile = File(targetDir, file)
-            if (assetManager.list(assetFile)?.isNotEmpty() == true) {
-                copyAssetsFolder(context, assetFile, targetFile.absolutePath)
-            } else {
-                assetManager.open(assetFile).use { input ->
-                    targetFile.outputStream().use { output -> input.copyTo(output) }
-                }
-            }
-        }
     }
 }
