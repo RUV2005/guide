@@ -43,7 +43,7 @@ import javax.crypto.spec.SecretKeySpec
 
 class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
-    private val TAG = "OCR_DEMO"
+    private val tag = "OCR_DEMO"
 
     // 凭证信息
     private val apiKey = "1d68a7b7f999dbdd55c2de07204f982e"
@@ -65,7 +65,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var lastRecognizedText: String? = null // 保存最后一次识别结果
 
     // 权限请求码
-    private val PERMISSION_REQUEST_CODE = 1001
+    private val permissionRequestCode = 1001
 
     // 视图元素
     private lateinit var btnRecognize: ImageView
@@ -92,7 +92,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             ActivityCompat.requestPermissions(
                 this,
                 REQUIRED_PERMISSIONS,
-                PERMISSION_REQUEST_CODE
+                permissionRequestCode
             )
         }
 
@@ -127,10 +127,10 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val result = textToSpeech?.setLanguage(Locale.CHINESE)
 
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.e(TAG, "中文语言包不支持或缺失")
+                Log.e(tag, "中文语言包不支持或缺失")
             } else {
                 isTtsInitialized = true
-                Log.i(TAG, "TTS初始化成功")
+                Log.i(tag, "TTS初始化成功")
 
                 // 如果有等待朗读的文本
                 pendingSpeechText?.let {
@@ -139,7 +139,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
         } else {
-            Log.e(TAG, "TTS初始化失败")
+            Log.e(tag, "TTS初始化失败")
         }
     }
 
@@ -155,11 +155,11 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             // 添加语音进度监听器
             textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
-                    Log.i(TAG, "语音开始播放")
+                    Log.i(tag, "语音开始播放")
                 }
 
                 override fun onDone(utteranceId: String?) {
-                    Log.i(TAG, "语音播放完成")
+                    Log.i(tag, "语音播放完成")
                     runOnUiThread {
                         // 播放完成恢复按钮颜色
                         btnRepeat.clearColorFilter()
@@ -167,7 +167,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
 
                 override fun onError(utteranceId: String?) {
-                    Log.e(TAG, "语音播放出错")
+                    Log.e(tag, "语音播放出错")
                     runOnUiThread {
                         btnRepeat.clearColorFilter()
                         Toast.makeText(this@ReadOnlineActivity, "语音播放失败", Toast.LENGTH_SHORT).show()
@@ -185,7 +185,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         } else {
             // TTS尚未初始化完成，保存文本稍后朗读
             pendingSpeechText = text
-            Log.w(TAG, "TTS未初始化，保存文本稍后朗读")
+            Log.w(tag, "TTS未初始化，保存文本稍后朗读")
         }
     }
 
@@ -203,7 +203,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == PERMISSION_REQUEST_CODE) {
+        if (requestCode == permissionRequestCode) {
             if (allPermissionsGranted()) {
                 startCamera()
             } else {
@@ -258,7 +258,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 )
 
             } catch (exc: Exception) {
-                Log.e(TAG, "相机绑定失败", exc)
+                Log.e(tag, "相机绑定失败", exc)
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -299,13 +299,13 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                             // 发送OCR请求
                             recognizeTextFromImage(base64Image)
                         } else {
-                            Log.e(TAG, "Bitmap解码失败")
+                            Log.e(tag, "Bitmap解码失败")
                         }
                     }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    Log.e(TAG, "拍照失败: ${exception.message}", exception)
+                    Log.e(tag, "拍照失败: ${exception.message}", exception)
                 }
             }
         )
@@ -325,7 +325,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val requestJson = buildRequestJson(base64Image)
 
                 // 3. 生成鉴权参数
-                val authParams = generateAuthorization(requestJson)
+                val authParams = generateAuthorization()
 
                 // 4. 发送请求
                 val client = OkHttpClient()
@@ -339,16 +339,16 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
                 client.newCall(request).enqueue(object : Callback {
                     override fun onFailure(call: Call, e: IOException) {
-                        Log.e(TAG, "请求失败: ${e.message}")
+                        Log.e(tag, "请求失败: ${e.message}")
                     }
 
                     override fun onResponse(call: Call, response: Response) {
                         val responseBody = response.body?.string()
-                        Log.d(TAG, "响应: $responseBody")
+                        Log.d(tag, "响应: $responseBody")
 
                         // 5. 解析结果
                         parseResponse(responseBody).let { resultText ->
-                            Log.i(TAG, "最终识别结果: $resultText")
+                            Log.i(tag, "最终识别结果: $resultText")
 
                             // 保存最后一次识别结果
                             lastRecognizedText = resultText
@@ -367,7 +367,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     }
                 })
             } catch (e: Exception) {
-                Log.e(TAG, "处理异常: ${e.message}")
+                Log.e(tag, "处理异常: ${e.message}")
             }
         }.start()
     }
@@ -405,7 +405,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         ))
     }
 
-    private fun generateAuthorization(requestJson: String): String {
+    private fun generateAuthorization(): String {
         // 生成RFC1123格式时间
         val sdf = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US)
         sdf.timeZone = TimeZone.getTimeZone("GMT")
@@ -490,7 +490,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             textBuilder.toString().trim()
 
         } catch (e: Exception) {
-            Log.e(TAG, "解析错误: ${e.message}", e)
+            Log.e(tag, "解析错误: ${e.message}", e)
             "解析错误: ${e.message}"
         }
     }

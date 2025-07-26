@@ -1,3 +1,7 @@
+@file:Suppress(
+    "PrivatePropertyName"
+)
+
 package com.danmo.guide.feature.feedback
 
 import android.annotation.SuppressLint
@@ -11,6 +15,7 @@ import java.util.concurrent.*
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
+@Suppress("PrivatePropertyName")
 class MessageQueueManager {
     // 优先级阻塞队列（按动态优先级排序）
     private val speechQueue = PriorityBlockingQueue<SpeechItem>()

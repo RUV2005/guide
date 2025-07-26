@@ -4,31 +4,52 @@
     <string name="loading_text">黑暗中的一束光正在加载中…</string>
     <string name="settings">设置</string>
     <string name="status_text_content_description">状态信息</string>
-    <string name="default_emergency_number">120</string>
     <string name="fall_detected_warning">检测到跌倒！正在启动紧急响应…</string>
     <string name="fall_alert_voice">检测到跌倒，已启动紧急呼叫</string>
-    <string name="low_light_warning">低光环境，已开启辅助照明</string>
-    <string name="normal_light_status">环境光线正常</string>
     <string name="false_alarm_canceled">误报已取消</string>
     <string name="normal_status">系统运行正常</string>
     <string name="no_objects_detected">未检测到有效障碍物</string>
-    <string name="location_failed">无法获取位置信息</string>
     <string name="manual_location">手动定位</string>
-    <string name="critical_permission_rationale">需要以下核心权限以使用完整功能：\n- 相机用于物体识别\n- 定位用于位置服务\n- 电话用于紧急呼叫</string>
-    <string name="permission_required">权限要求</string>
-    <string name="cancel">取消</string>
     <string name="weather">天气播报</string>
-    <string name="tts_not_ready">语音引擎未就绪</string>
-    <string name="weather_failed">获取天气信息失败</string>
-    <string name="latest_version">当前已是最新版本</string>
     <string name="camera_switch_button">切换摄像头</string> <!-- 中文 -->
     <string name="speaker_switch_button">切换音频输出</string>
     <!-- res/values/strings.xml -->
-    <string name="default_changelog">常规功能优化和问题修复</string>
     <!-- res/values/strings.xml -->
-    <string name="version_format_error">版本格式异常，请联系管理员</string>
+
+    <string name="unknown_location">未知位置</string>
     <string name="voice_control">语音控制</string>
-    <string name="voice_call">语音通话</string>
     <string name="room">室内描述模式</string>>
     <string name="read_online">在线阅读模式</string>>
+    <string name="back_button_desc">返回按钮</string>
+    <string name="capture_button_desc">拍照按钮</string>
+    <string name="speak_button_desc">播报按钮</string>
+    <string name="calling_status">通话中…</string>
+
+
+
+    <!-- MainActivity 及通用提示 -->
+    <string name="detected_objects">检测到: %s</string>
+    <string name="current_location">当前位置：%s</string>
+    <string name="location_failed">定位失败</string>
+    <string name="status_disconnected">未连接</string>
+    <string name="initial_timer">00:00</string>
+    <string name="repeat_button_desc">重新播报</string>
+    <!-- 语音帮助列表（逐行播报用） -->
+
+    <!-- 权限弹窗 -->
+    <string name="permission_location_rationale">需要位置权限获取天气</string>
+    <string name="permission_record_audio_rationale">需要麦克风权限才能使用语音功能</string>
+
+    <!-- 摄像头状态 -->
+
+    <!-- 外置流状态 -->
+
+    <!-- 语音播报固定句式 -->
+    <string name="speak_enter_read_mode">正在进入阅读模式…</string>
+    <string name="speak_no_mic_permission">未获得麦克风权限，无法进行语音识别</string>
+    <string name="speak_model_download_failed">模型下载或加载失败</string>
+    <string name="speak_speech_start_failed">语音识别启动失败，请重试</string>
+    <!-- 通用 -->
+    <string name="timer_format">%02d:%02d</string>
+    <string name="speak_location_error">定位失败，请检查设置</string>
 </resources>

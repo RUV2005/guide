@@ -1,15 +1,11 @@
 package com.danmo.guide.ui.room
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.util.Base64
 import android.util.Log
 import android.widget.Toast
@@ -23,17 +19,16 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.danmo.guide.R
 import com.danmo.guide.databinding.ActivityArkBinding
 import com.danmo.guide.feature.room.ArkViewModel
-import com.danmo.guide.ui.main.MainActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
-import java.util.*
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import androidx.core.graphics.scale
 
 class RoomActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     companion object {
@@ -167,21 +162,6 @@ class RoomActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
 
-    // 实际执行导航
-    private fun performNavigation() {
-        runOnUiThread {
-            // 添加返回动画
-            overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
-
-            // 启动 MainActivity
-            val intent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            startActivity(intent)
-            finish()
-        }
-    }
-
     // 覆盖返回键行为
     @Deprecated("This method has been deprecated in favor of using the\n      {@link OnBackPressedDispatcher} via {@link #getOnBackPressedDispatcher()}.\n      The OnBackPressedDispatcher controls how back button events are dispatched\n      to one or more {@link OnBackPressedCallback} objects.")
     override fun onBackPressed() {
@@ -239,7 +219,7 @@ class RoomActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 // 压缩图片
-                val compressedBytes = compressBitmap(bitmap, maxSizeKB = 300)
+                val compressedBytes = compressBitmap(bitmap)   // 不再写 300
 
                 // 转换为Base64
                 val base64Image = "data:image/webp;base64,${Base64.encodeToString(compressedBytes, Base64.NO_WRAP)}"
@@ -298,10 +278,10 @@ class RoomActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
                 try {
                     // 解除绑定后重新绑定
-                    cameraProvider?.unbindAll()
+                    cameraProvider.unbindAll()
 
                     // 绑定到生命周期
-                    cameraProvider?.bindToLifecycle(
+                    cameraProvider.bindToLifecycle(
                         this, cameraSelector, preview, imageCapture
                     )
                 } catch (exc: Exception) {
@@ -381,15 +361,26 @@ class RoomActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     // 图片压缩方法
-    private fun compressBitmap(bitmap: Bitmap, maxSizeKB: Int = 300): ByteArray {
+    /**
+     * 将 Bitmap 压缩到指定大小以内，默认最大 300 KB。
+     * 优先降低质量，仍过大时再等比缩小尺寸。
+     *
+     * @param bitmap     原始 Bitmap
+     * @param maxSizeKB  期望的最大体积（KB），默认 300
+     * @return           压缩后的字节数组（WebP 格式）
+     */
+    private fun compressBitmap(
+        bitmap: Bitmap,
+        maxSizeKB: Int = 300
+    ): ByteArray {
+
         val outputStream = ByteArrayOutputStream()
         var quality = 90
 
-        // 先尝试高质量压缩
+        // 1. 先尝试质量压缩
         bitmap.compress(Bitmap.CompressFormat.WEBP, quality, outputStream)
         var bytes = outputStream.toByteArray()
 
-        // 如果太大，降低质量
         while (bytes.size > maxSizeKB * 1024 && quality > 40) {
             outputStream.reset()
             quality -= 10
@@ -397,14 +388,12 @@ class RoomActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             bytes = outputStream.toByteArray()
         }
 
-        // 如果仍然太大，缩小尺寸
+        // 2. 如果仍然超标，再缩小尺寸
         if (bytes.size > maxSizeKB * 1024) {
             val scaleFactor = 0.8f
-            val scaledBitmap = Bitmap.createScaledBitmap(
-                bitmap,
+            val scaledBitmap = bitmap.scale(
                 (bitmap.width * scaleFactor).toInt(),
-                (bitmap.height * scaleFactor).toInt(),
-                true
+                (bitmap.height * scaleFactor).toInt()
             )
 
             outputStream.reset()
@@ -413,7 +402,7 @@ class RoomActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             scaledBitmap.recycle()
         }
 
-        Log.d(TAG, "压缩后大小: ${bytes.size / 1024}KB")
+        Log.d(TAG, "压缩后大小: ${bytes.size / 1024} KB")
         return bytes
     }
 

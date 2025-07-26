@@ -1,4 +1,4 @@
-    package com.danmo.guide.ui.main
+package com.danmo.guide.ui.main
 
     import android.Manifest
     import android.annotation.SuppressLint
@@ -46,6 +46,7 @@
     import com.danmo.guide.feature.feedback.DetectionProcessor
     import com.danmo.guide.feature.feedback.FeedbackManager
     import com.danmo.guide.feature.location.LocationManager
+    import com.danmo.guide.feature.powermode.PowerMode
     import com.danmo.guide.feature.vosk.VoskRecognizerManager
     import com.danmo.guide.feature.weather.WeatherManager
     import com.danmo.guide.ui.components.OverlayView
@@ -72,6 +73,7 @@
     import kotlin.math.pow
     import kotlin.math.sqrt
 
+@Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         SensorEventListener, LocationManager.LocationCallback, FallDetector.WeatherCallback,
         RecognitionListener {  // 使用 Vosk 的 RecognitionListener
@@ -83,13 +85,15 @@
         private var isStreaming = false
         private val client = OkHttpClient()
         private lateinit var boundary: String
-        private val TAG = "MjpegStream"
+        private val tag = "MjpegStream"
         private var leftoverData = ByteArray(0)
         private var streamingJob: Job? = null
         private var isCameraMode = true // true 表示内置摄像头模式，false 表示外置摄像头模式
         private var timerJob: Job? = null
-        private val RECONNECT_DELAY = 5000L
-        private val MAX_RETRIES = 5
+        private val reconnectDelay = 5000L
+        private val maxRetries = 5
+
+
 
         // 添加户外模式播报状态跟踪
         private var hasOutdoorModeAnnounced = false
@@ -130,9 +134,10 @@
         private var falseAlarmCancelCount = 0
         private var isUserMoving = false
         private var lastMovementTimestamp = 0L
-        private val MOVEMENT_THRESHOLD = 2.5 // 移动检测阈值（m/s²）
-        private val MOVEMENT_WINDOW = 5L // 移动判断时间窗口（5秒）
+        private val movementThreshold = 2.5 // 移动检测阈值（m/s²）
+        private val movementWindow = 5L // 移动判断时间窗口（5秒）
         private var isRecognitionStarting = false   // 防止重复点击
+
 
         // 添加延迟播报处理器
         private val announcementHandler = Handler(Looper.getMainLooper())
@@ -159,6 +164,13 @@
                 }
             }
 
+    override fun onError(exception: Exception?) {
+        Log.e("VOSK_ERROR", "语音识别出错: ${exception?.message}", exception)
+        runOnUiThread {
+            binding.statusText.text = "语音识别出错"
+            ttsService?.speak("语音识别出错，请重试")
+        }
+    }
 
         private fun checkCameraPermission() {
             when {
@@ -219,37 +231,55 @@
         @SuppressLint("ClickableViewAccessibility")
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
+
+            // 1. 布局绑定
             binding = ActivityMainBinding.inflate(layoutInflater)
             setContentView(binding.root)
+
+            // 2. 隐私合规（不变）
             AMapLocationClient.updatePrivacyShow(this, true, true)
             AMapLocationClient.updatePrivacyAgree(this, true)
 
-
-            // ✅ 2. 注册电池温度监听
+            // 3. 注册广播（不变）
             registerReceiver(
                 batteryReceiver,
                 IntentFilter(Intent.ACTION_BATTERY_CHANGED)
             )
-            // 初始化后安排延迟播报
-            ensureOutdoorModeAnnouncement()
 
-            initBasicComponents()
+            // 4. 直接使用 Splash 预加载好的资源
+            cameraExecutor = Executors.newSingleThreadExecutor()
+            overlayView = binding.overlayView
+
+            // 4-1 TFLite 模型：复用 InitManager 里的 Interpreter
+            objectDetectorHelper = ObjectDetectorHelper(this)
+
+            feedbackManager = FeedbackManager(this)
+            cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
+            weatherManager = WeatherManager()
+            locationManager = LocationManager.instance!!
+            locationManager.initialize(this)
+            locationManager.callback = this
+
+            // 4-2 Vosk 已预加载，直接设置状态即可
+            if (!com.danmo.guide.feature.init.InitManager.voskReady) {
+                showToast("Vosk 模型未就绪")
+            }
+
+            // 4-3 缓存定位：如果 Splash 已拿到就立即显示
+            com.danmo.guide.feature.init.InitManager.cachedLocation?.let {
+                onLocationSuccess(it, isWeatherButton = false)
+            }
+
+            // 5. 其余初始化（不变）
             initFallDetection()
             bindTtsService()
 
-            // 添加摄像头切换按钮
-            binding.fabSwitchCamera.setOnClickListener {
-                switchCameraMode()
-            }
-
-            binding.fabVoice.setOnClickListener {
-                handleVoiceCommand()
-            }
-
+            // 6. UI 事件绑定（不变）
+            binding.fabSwitchCamera.setOnClickListener { switchCameraMode() }
+            binding.fabVoice.setOnClickListener { handleVoiceCommand() }
             binding.fabLocation.setOnClickListener {
                 startLocationDetection(isWeatherButton = false)
             }
-
             binding.fabWeather.setOnClickListener {
                 if (checkLocationPermission()) {
                     showToast("正在获取天气...")
@@ -258,14 +288,16 @@
                     requestLocationPermission()
                 }
             }
-            binding.fabVoiceCall.setOnClickListener {
-                startVoiceCallActivity()
+            binding.fabVoiceCall.setOnClickListener { startVoiceCallActivity() }
+            binding.fabSettings.setOnClickListener {
+                startActivity(Intent(this, SettingsActivity::class.java))
             }
-            // 初始化 Vosk
-            lifecycleScope.launch {
-                val ok = VoskRecognizerManager.initWithDownload(this@MainActivity)
-                if (!ok) showToast("模型初始化失败")
-            }
+
+            // 7. 摄像头权限检查（不变）
+            checkCameraPermission()
+
+            // 8. 延迟播报（不变）
+            ensureOutdoorModeAnnouncement()
         }
 
         // 添加 handleVoiceCommand 方法
@@ -316,8 +348,8 @@
             val filteredAcceleration = applyLowPassFilter(rawAcceleration)
             // 使用滤波后的值进行判断
             val dynamicThreshold = when {
-                lastLightValue < 10 -> MOVEMENT_THRESHOLD * 0.9
-                else -> MOVEMENT_THRESHOLD
+                lastLightValue < 10 -> movementThreshold * 0.9
+                else -> movementThreshold
             }
             // 调整触发条件（需连续两次超过阈值）
             if (filteredAcceleration > dynamicThreshold) {
@@ -325,7 +357,7 @@
                     lastMovementTimestamp = currentTime
                 }
             }
-            val shouldBeMoving = (currentTime - lastMovementTimestamp) < MOVEMENT_WINDOW
+            val shouldBeMoving = (currentTime - lastMovementTimestamp) < movementWindow
             // 添加状态变化缓冲
             if (isUserMoving != shouldBeMoving) {
                 if (System.currentTimeMillis() - lastMovementStateChange > 2000) {
@@ -350,31 +382,31 @@
 
         override fun onLocationSuccess(location: AMapLocation?, isWeatherButton: Boolean) {
             if (location == null) {
-                binding.statusText.text = "定位失败"
-                ttsService?.speak("定位失败，请重试")
+                binding.statusText.text = getString(R.string.location_failed)
+                ttsService?.speak(getString(R.string.location_failed))
                 return
             }
-            Log.d("定位Debug", "address=${location.address}, district=${location.district}, city=${location.city}, street=${location.street}, latitude=${location.latitude}, longitude=${location.longitude}, errorCode=${location.errorCode}, errorInfo=${location.errorInfo}")
-
-            val posText = listOfNotNull(location.district, location.street, location.city, location.address)
-                .firstOrNull { it.isNotBlank() } ?: "未知位置"
+            val pos = listOfNotNull(location.district, location.street, location.city, location.address)
+                .firstOrNull { it.isNotBlank() } ?: getString(R.string.unknown_location)
             if (!isWeatherButton) {
-                ttsService?.speak("当前位置：${location.address}")
+                ttsService?.speak(getString(R.string.current_location, location.address))
             } else {
-                getWeatherAndAnnounce(location.latitude, location.longitude, posText)
+                getWeatherAndAnnounce(location.latitude, location.longitude, pos)
             }
         }
 
-        override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
-            Log.e("LocationManager", "onLocationFailure errorCode=$errorCode, errorInfo=$errorInfo")
-            // 使用 runOnUiThread 确保在主线程更新UI
-            runOnUiThread {
-                val errorLog = "定位失败 (错误码: $errorCode): ${errorInfo ?: "未知错误"}"
-                Log.e("LocationError", errorLog)
-                showToast(errorLog)
-                ttsService?.speak("定位失败，请检查设置")
+    override fun onPartialResult(hypothesis: String?) {
+        // 如需实时提示，可留空或仅记录日志
+        Log.d("VOSK_PARTIAL", hypothesis ?: "")
+    }
 
-                binding.statusText.text = "定位失败"
+        override fun onLocationFailure(errorCode: Int, errorInfo: String?) {
+            runOnUiThread {
+                val msg = getString(R.string.location_failed) + " (错误码: $errorCode)"
+                Log.e("LocationError", msg)
+                showToast(msg)
+                ttsService?.speak(getString(R.string.speak_location_error))
+                binding.statusText.text = getString(R.string.location_failed)
             }
         }
 
@@ -396,58 +428,42 @@
             )
         }
 
-        override fun onRequestPermissionsResult(
-            requestCode: Int,
-            permissions: Array<String>,
-            grantResults: IntArray
-        ) {
-            super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-            when (requestCode) {
-                LOCATION_PERMISSION_REQUEST_CODE -> {
-                    if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                        locationManager.startLocation(this)
-                    } else {
-                        showToast("需要位置权限获取天气")
+            @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+            override fun onRequestPermissionsResult(
+                requestCode: Int,
+                permissions: Array<String>,
+                grantResults: IntArray
+            ) {
+                super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                when (requestCode) {
+                    LOCATION_PERMISSION_REQUEST_CODE -> {
+                        if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                            locationManager.startLocation(this)
+                        } else {
+                            showToast(getString(R.string.permission_location_rationale))
+                        }
                     }
-                }
-
-                REQUEST_RECORD_AUDIO_PERMISSION -> {
-                    if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                        startVoiceRecognition()
-                    } else {
-                        showToast("需要麦克风权限才能使用语音功能")
-                        ttsService?.speak("未获得麦克风权限，无法进行语音识别")
+                    REQUEST_RECORD_AUDIO_PERMISSION -> {
+                        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                            startVoiceRecognition()
+                        } else {
+                            showToast(getString(R.string.permission_record_audio_rationale))
+                            ttsService?.speak(getString(R.string.speak_no_mic_permission))
+                        }
                     }
                 }
             }
-        }
 
         // 1. 电池温度回调里设置电源模式
         private val batteryReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 val temperature = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10f
                 val newMode = when {
-                    temperature < 36f -> ObjectDetectorHelper.PowerMode.HIGH_ACCURACY
-                    temperature < 38f -> ObjectDetectorHelper.PowerMode.BALANCED
-                    else -> ObjectDetectorHelper.PowerMode.LOW_POWER
+                    temperature < 36f -> PowerMode.HIGH_ACCURACY
+                    temperature < 38f -> PowerMode.BALANCED
+                    else -> PowerMode.LOW_POWER
                 }
                 objectDetectorHelper.setPowerMode(newMode)
-            }
-        }
-
-        private fun initBasicComponents() {
-            cameraExecutor = Executors.newSingleThreadExecutor()
-            overlayView = binding.overlayView
-            objectDetectorHelper = ObjectDetectorHelper(this)
-            feedbackManager = FeedbackManager(this)
-            cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
-            weatherManager = WeatherManager(this)
-            checkCameraPermission()
-            locationManager = LocationManager.instance!!
-            locationManager.initialize(this)
-            locationManager.callback = this
-            binding.fabSettings.setOnClickListener {
-                startActivity(Intent(this, SettingsActivity::class.java))
             }
         }
 
@@ -496,31 +512,19 @@
         }
 
         private fun initCameraResources() {
-            // 确保执行器可用
-            if (::cameraExecutor.isInitialized && cameraExecutor.isShutdown) {
-                cameraExecutor = Executors.newSingleThreadExecutor()
-            } else if (!::cameraExecutor.isInitialized) {
+            if (!::cameraExecutor.isInitialized) {
                 cameraExecutor = Executors.newSingleThreadExecutor()
             }
-
-            // 确保摄像头管理器可用
             if (!::cameraManager.isInitialized) {
                 cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
             } else {
-                // 如果已初始化但被关闭，重新创建
-                try {
-                    if (cameraManager.isShutdown()) {  // 修复调用isShutdown()
-                        cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
-                    }
-                } catch (e: Exception) {
-                    Log.e("Camera", "检查摄像头管理器状态失败", e)
+                if (cameraManager.isShutdown()) {
                     cameraManager = CameraManager(this, cameraExecutor, createAnalyzer())
                 }
             }
-
-            // 添加日志以便调试
             Log.d("Camera", "摄像头资源初始化完成: executor=${cameraExecutor.isShutdown}, manager=${::cameraManager.isInitialized}")
         }
+
 
         override fun onPause() {
             super.onPause()
@@ -625,99 +629,52 @@
          * 启动语音识别（带权限检查、防重复初始化、异常捕获）
          */
         private fun startVoiceRecognition() {
-            if (isRecognitionStarting) return      // 已有任务在执行
-            if (ttsService?.isSpeaking == true) {
-                Log.d("Speech", "TTS 播放中，本次不启动识别")
-                return
-            }
-
-            // 权限检查
-            when {
-                ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.RECORD_AUDIO
-                ) != PackageManager.PERMISSION_GRANTED -> {
-                    ActivityCompat.requestPermissions(
-                        this,
-                        arrayOf(Manifest.permission.RECORD_AUDIO),
-                        REQUEST_RECORD_AUDIO_PERMISSION
-                    )
-                    return
-                }
-
-                else -> {
-                    isRecognitionStarting = true
-                    lifecycleScope.launch(Dispatchers.Main) {
-                        try {
-                            // 1. 立即释放旧资源
-                            VoskRecognizerManager.stopListening()
-                            VoskRecognizerManager.destroy()
-
-                            // 2. 给系统 300 ms 释放麦克风
-                            delay(300)
-
-                            // 3. 确保模型已下载
-                            val ok = withContext(Dispatchers.IO) {
-                                VoskRecognizerManager.initWithDownload(this@MainActivity)
-                            }
-                            if (!ok) {
-                                showToast("模型下载或加载失败")
-                                return@launch
-                            }
-
-                            // 4. 启动识别
-                            VoskRecognizerManager.startListening { result ->
-                                runOnUiThread {
-                                    binding.statusText.text = "识别结果: $result"
-                                    processVoiceCommand(result)
-                                }
-                            }
-                            isListening = true
-                            binding.statusText.text = "正在聆听..."
-                            ttsService?.speak("您请说", true)
-
-                        } catch (e: Exception) {
-                            Log.e("Speech", "启动识别异常: ${e.message}")
-                            showToast("语音识别启动失败，请重试")
-                        } finally {
-                            isRecognitionStarting = false
+            if (isRecognitionStarting || ttsService?.isSpeaking == true) return
+            isRecognitionStarting = true
+            lifecycleScope.launch(Dispatchers.Main) {
+                try {
+                    VoskRecognizerManager.stopListening()
+                    VoskRecognizerManager.destroy()
+                    delay(300)
+                    val ok = withContext(Dispatchers.IO) {
+                        VoskRecognizerManager.initWithDownload(this@MainActivity)
+                    }
+                    if (!ok) {
+                        showToast(getString(R.string.speak_model_download_failed))
+                        return@launch
+                    }
+                    VoskRecognizerManager.startListening { result ->
+                        runOnUiThread {
+                            binding.statusText.text = getString(R.string.detected_objects, result)
+                            processVoiceCommand(result)
                         }
                     }
+                    isListening = true
+                    binding.statusText.text = getString(R.string.detected_objects, getString(R.string.detected_objects, "正在聆听"))
+                    ttsService?.speak(getString(R.string.speak_enter_read_mode))
+                } catch (e: Exception) {
+                    Log.e("Speech", "startVoiceRecognition", e)
+                    showToast(getString(R.string.speak_speech_start_failed))
+                } finally {
+                    isRecognitionStarting = false
                 }
             }
         }
 
 
 
-        // 保留 UI，但不再调用 processVoiceCommand
-        override fun onPartialResult(hypothesis: String?) {
-            hypothesis?.let {
-                runOnUiThread {
-                    binding.statusText.text = "正在识别: $it"
-                }
-            }
-        }
 
 
         override fun onResult(hypothesis: String?) {
             hypothesis?.let {
                 Log.d("VOSK_FINAL", "最终结果: $it")
                 runOnUiThread {
-                    binding.statusText.text = "识别结果: $it"
                     processVoiceCommand(it)
                 }
             }
         }
 
-        override fun onFinalResult(hypothesis: String?) {
-            // 最终结果处理
-        }
 
-        override fun onError(exception: Exception?) {
-            runOnUiThread {
-                binding.statusText.text = "识别错误: ${exception?.message}"
-            }
-        }
 
         override fun onTimeout() {
             runOnUiThread {
@@ -779,38 +736,30 @@
         }
 
         // 新增跳转方法
+        @Suppress("DEPRECATION")
         private fun startVoiceCallActivity() {
-            binding.statusText.text = "正在启动语音通话..."
-
-
-            // 添加过渡动画
-            overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-
-            // 启动语音通话活动
             startActivity(Intent(this, VoiceCallActivity::class.java))
+            @Suppress("DEPRECATION")
+            overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
         }
 
+        @Suppress("DEPRECATION")
         private fun startRoomActivity() {
-
-            // 添加过渡动画
-            overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-
-            // 延迟确保语音播报完成后再跳转
             Handler(Looper.getMainLooper()).postDelayed({
                 startActivity(Intent(this, RoomActivity::class.java))
-            }, 300) // 300ms延迟确保语音播报完成
+                @Suppress("DEPRECATION")
+                overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+            }, 300)
         }
 
+        @Suppress("DEPRECATION")
         private fun startReadOnlineActivity() {
-            binding.statusText.text = "正在进入阅读模式..."
-
-            // 添加过渡动画
-            overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-            ttsService?.speak("正在进入阅读模式...")
-            // 延迟确保语音播报完成后再跳转
+            ttsService?.speak(getString(R.string.speak_enter_read_mode))
             Handler(Looper.getMainLooper()).postDelayed({
                 startActivity(Intent(this, ReadOnlineActivity::class.java))
-            }, 300) // 300ms延迟确保语音播报完成
+                @Suppress("DEPRECATION")
+                overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+            }, 300)
         }
 
         private fun pauseDetection() {
@@ -904,6 +853,7 @@
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
+        @Suppress("DEPRECATION")
         override fun onBackPressed() {
             if (fallDetector.isFallDetected()) {
                 handleFalseAlarm()
@@ -920,6 +870,15 @@
                 binding.statusText.text = getString(R.string.normal_status)
             }
         }
+
+    override fun onFinalResult(hypothesis: String?) {
+        hypothesis?.let {
+            Log.d("VOSK_FINAL", "最终结果: $it")
+            runOnUiThread {
+                processVoiceCommand(it)
+            }
+        }
+    }
 
         private fun startCamera() {
             // 确保相机资源已初始化
@@ -942,12 +901,10 @@
             }
         }
 
-        private fun createAnalyzer(): ImageAnalysis.Analyzer =
-            ImageAnalysis.Analyzer { imageProxy ->
-                // 更新检测处理器中的图像尺寸
+        private fun createAnalyzer(): ImageAnalysis.Analyzer {
+            return ImageAnalysis.Analyzer { imageProxy ->
                 DetectionProcessor.getInstance(this@MainActivity)
                     .updateImageDimensions(imageProxy.width, imageProxy.height)
-
                 lifecycleScope.launch(Dispatchers.IO) {
                     val bitmap = ImageProxyUtils.toBitmap(imageProxy) ?: return@launch
                     val tensorImage = TensorImage.fromBitmap(bitmap)
@@ -955,7 +912,6 @@
                     val results = withContext(objectDetectorHelper.gpuThread) {
                         objectDetectorHelper.detect(bitmap, rotationDegrees)
                     }
-
                     overlayView.setModelInputSize(tensorImage.width, tensorImage.height)
                     updateOverlayView(results, rotationDegrees)
                     updateStatusUI(results)
@@ -963,6 +919,7 @@
                     imageProxy.close()
                 }
             }
+        }
 
         override fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String) {
             lifecycleScope.launch(Dispatchers.IO) {
@@ -981,7 +938,6 @@
 
                         val speechText = weatherManager.generateSpeechText(weatherData, cityName)
                         speakWeather(speechText)
-                        binding.statusText.text = "$cityName 天气获取成功"
                     }
                 } catch (e: Exception) {
                     // 切换到主线程处理错误
@@ -1016,17 +972,15 @@
             }
         }
 
-        private fun updateStatusUI(results: List<Detection>) {
-            runOnUiThread {
-                binding.statusText.text = when {
-                    results.isEmpty() -> getString(R.string.no_objects_detected)
-                    else -> "检测到: ${
-                        results.joinToString {
-                            DetectionProcessor.getInstance(this)
-                                .getChineseLabel(it.categories.maxByOrNull { c -> c.score }?.label ?: "unknown")
-                        }
-                    }"
-                }
+        private fun updateStatusUI(results: List<Detection>) = runOnUiThread {
+            val names = results.joinToString {
+                DetectionProcessor.getInstance(this)
+                    .getChineseLabel(it.categories.maxByOrNull { c -> c.score }?.label ?: "unknown")
+            }
+            binding.statusText.text = if (names.isEmpty()) {
+                getString(R.string.no_objects_detected)
+            } else {
+                getString(R.string.detected_objects, names)
             }
         }
 
@@ -1088,16 +1042,16 @@
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "Stream error: ${e.message}")
-                        if (++retryCount > MAX_RETRIES) {
+                        Log.e(tag, "Stream error: ${e.message}")
+                        if (++retryCount > maxRetries) {
                             updateConnectionState(ConnectionState.DISCONNECTED)
                             showToast("Max retries reached")
                             isStreaming = false
                             return@launch
                         }
                         if (isStreaming) {
-                            showToast("正在重连... $retryCount/$MAX_RETRIES")
-                            delay(RECONNECT_DELAY)
+                            showToast("正在重连... $retryCount/$maxRetries")
+                            delay(reconnectDelay)
                         }
                     }
                 }
@@ -1161,7 +1115,7 @@
 
                 // 2. 后台识别（协程）
                 lifecycleScope.launch(Dispatchers.IO) {
-                    val tensorImage = TensorImage.fromBitmap(bmp)
+                    TensorImage.fromBitmap(bmp)
                     val results = withContext(objectDetectorHelper.gpuThread) {
                         objectDetectorHelper.detect(bmp, 0)
                     }
@@ -1181,22 +1135,6 @@
             isStreaming = false
             streamingJob?.cancel()
             updateConnectionState(ConnectionState.DISCONNECTED)
-        }
-
-        private fun handleDetectionResultsFromStream(results: List<Detection>) {
-            results
-                .filter { it.categories.isNotEmpty() }
-                .maxByOrNull {
-                    it.categories.maxByOrNull { c -> c.score }?.score ?: 0f
-                }?.let {
-                    feedbackManager.handleDetectionResult(it)
-                    updateOverlayView(results, 0) // 假设视频流不需要旋转
-                    updateStatusUI(results)
-                    // 如果需要将结果传递给 DetectionProcessor，可以在这里调用
-                    results.forEach { detection ->
-                        DetectionProcessor.getInstance(this).handleDetectionResult(detection)
-                    }
-                }
         }
 
         // 查找边界
@@ -1245,10 +1183,9 @@
             timerJob = lifecycleScope.launch(Dispatchers.Main) {
                 while (isStreaming && connectionState == ConnectionState.CONNECTED) {
                     val elapsed = System.currentTimeMillis() - connectionStartTime
-                    val minutes = (elapsed / 1000) / 60
-                    val seconds = (elapsed / 1000) % 60
-                    // 使用binding.timerText更新计时器
-                    binding.timerText.text = "%02d:%02d".format(minutes, seconds)
+                    val min = elapsed / 1000 / 60
+                    val sec = elapsed / 1000 % 60
+                    binding.timerText.text = getString(R.string.timer_format, min, sec)
                     delay(1000)
                 }
             }

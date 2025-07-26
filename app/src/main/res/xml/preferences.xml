@@ -22,7 +22,6 @@
             app:key="speech_rate"
             app:title="语音速度"
             android:defaultValue="12"
-            android:min="5"
             android:max="20"
             app:showSeekBarValue="true"
             app:summary="当前速度：%s倍"

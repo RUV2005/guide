@@ -36,7 +36,7 @@ class TTSManager(context: Context) : TextToSpeech.OnInitListener {
                 setupTTS()
             }
             else -> {
-                showToast("语音功能初始化失败 TTS init failed", true)
+                showToast("语音功能初始化失败 TTS init failed")
                 tts.stop()
                 tts.shutdown()
             }
@@ -114,7 +114,7 @@ class TTSManager(context: Context) : TextToSpeech.OnInitListener {
         tts.stop()
     }
 
-    private fun showToast(message: String, isLong: Boolean = false) {
+    private fun showToast(message: String, isLong: Boolean = true) {
         Toast.makeText(context, message, if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
     }
 }

@@ -58,16 +58,18 @@ An AI-powered assistive application leveraging computer vision to provide real-t
 ### Preference Settings
 ```xml
 <!-- app/src/main/res/xml/settings.xml -->
-<string-array name="pref_confidence_entries">
-    <item>High Accuracy (0.7)</item>
-    <item>Balanced (0.5)</item>
-    <item>Sensitive (0.3)</item>
-</string-array>
-<string-array name="pref_feedback_frequency_entries">
-    <item>Realtime</item>
-    <item>Power Saver</item>
-    <item>Emergency Only</item>
-</string-array>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <string-array name="pref_confidence_entries">
+        <item>High Accuracy (0.7)</item>
+        <item>Balanced (0.5)</item>
+        <item>Sensitive (0.3)</item>
+    </string-array>
+    <string-array name="pref_feedback_frequency_entries">
+        <item>Realtime</item>
+        <item>Power Saver</item>
+        <item>Emergency Only</item>
+    </string-array>
+</PreferenceScreen>
 ```
 ### Development Extensions
 1. Custom detection model:
@@ -89,11 +91,11 @@ An AI-powered assistive application leveraging computer vision to provide real-t
 ## Contributing
 We welcome contributions through:
 1. Issue reporting:
-   - Use [Issue Template](.github/ISSUE_TEMPLATE.md)
+   - Use [Issue Template]
    - Include device model & reproduction steps
 2. Code contributions:
    - Fork repository and create feature branch
-   - Follow [Kotlin Style Guide](code-style.md)
+   - Follow [Kotlin Style Guide]
    - Submit PR with linked issue
 3. Localization support:
    - Add translations in `feedback_labels.csv`

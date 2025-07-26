@@ -1,5 +1,4 @@
 package com.danmo.guide.feature.weather
-import android.content.Context
 import android.util.Log
 import com.danmo.guide.BuildConfig
 import com.google.gson.Gson
@@ -13,13 +12,8 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
-class WeatherManager(private val context: Context) {
-    companion object {
-        // 城市名称转换方法（不再使用映射表）
-        fun getChineseCityName(englishName: String?): String {
-            return englishName ?: "未知地区"
-        }
-    }
+class WeatherManager {
+    companion object;
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
@@ -94,7 +88,7 @@ suspend fun getWeather(lat: Double, lon: Double): WeatherData? {
                     temp in 1..10 -> append("当前温度：${temp}度，出门穿厚点哦")
                     temp in 11..20 -> append("当前温度：${temp}度，温度舒适呢")
                     temp in 21..28 -> append("当前温度：${temp}度，穿短袖就行啦")
-                    temp > 28 -> append("当前温度：${temp}度，注意防暑哦")
+                    else -> append("当前温度：${temp}度，注意防暑哦")
                 }
                 // 天气现象播报
                 when {

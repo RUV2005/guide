@@ -4,7 +4,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".ui.main.MainActivity">
+    tools:context=".ui.main.MainActivity"
+    tools:ignore="MergeRootFrame">
 
     <View
         android:layout_width="match_parent"
@@ -31,11 +32,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center"
-        android:text="通话中..."
-        android:textColor="@color/white"
-        android:textSize="18sp"/>
+        android:text="@string/calling_status"
+    android:textColor="@color/white"
+    android:textSize="18sp"/>
 
-    <!-- 为 FloatingActionButton 设置图标颜色 -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/btn_back"
         android:layout_width="wrap_content"
@@ -47,8 +47,8 @@
         app:backgroundTint="@color/white"
         app:tint="@color/red"
         app:elevation="8dp" />
+
     <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/btn_speaker"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|right"
@@ -58,6 +58,7 @@
         android:src="@drawable/ic_switch_speaker"
         app:backgroundTint="@color/white"
         app:tint="@color/black"
-        app:elevation="8dp" />
+        app:elevation="8dp"
+        tools:ignore="RtlHardcoded" />
 
 </FrameLayout>

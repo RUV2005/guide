@@ -6,7 +6,8 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/white"
-    android:padding="16dp">
+    android:padding="16dp"
+    tools:ignore="Overdraw">
     <!-- 品牌Logo -->
     <ImageView
         android:id="@+id/iv_logo"
@@ -49,14 +50,12 @@
         android:layout_marginBottom="32dp">
         <!-- 进度指示 -->
         <ProgressBar
-            android:id="@+id/progress_bar"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:visibility="visible"
             style="@style/Widget.AppCompat.ProgressBar"/>
         <!-- 加载文字 -->
         <TextView
-            android:id="@+id/tv_loading"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/loading_text"

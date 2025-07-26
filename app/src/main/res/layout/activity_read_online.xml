@@ -19,7 +19,6 @@
         app:scaleType="fitCenter" />
     <!-- 拍照按钮 -->
     <androidx.cardview.widget.CardView
-        android:id="@+id/camera_button"
         android:layout_width="72dp"
         android:layout_height="72dp"
         android:layout_gravity="bottom|center"
@@ -30,7 +29,7 @@
             android:id="@+id/btnRecognize"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:contentDescription="拍照按钮"
+            android:contentDescription="@string/capture_button_desc"
             android:gravity="center"
             android:scaleType="center"
             android:src="@drawable/ic_camera" />
@@ -38,10 +37,9 @@
 
     <!-- 拍照按钮 -->
     <androidx.cardview.widget.CardView
-        android:id="@+id/repeat_button"
         android:layout_width="72dp"
         android:layout_height="72dp"
-        android:layout_gravity="bottom|right"
+        android:layout_gravity="bottom|end"
         android:layout_marginBottom="64dp"
         app:cardCornerRadius="40dp"
         app:cardElevation="8dp">
@@ -49,7 +47,7 @@
             android:id="@+id/btnRepeat"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:contentDescription="重新播报"
+            android:contentDescription="@string/repeat_button_desc"
             android:gravity="center"
             android:scaleType="center"
             android:src="@drawable/ic_switch_speaker" />

@@ -1,11 +1,4 @@
 <!-- styles.xml -->
 <resources>
     <!-- styles.xml -->
-    <style name="TextStyle">
-        <item name="android:textSize">16sp</item>
-        <item name="android:textColor">@color/black</item>
-    </style>
-    <style name="TextStyle.Bold" parent="TextStyle">
-        <item name="android:textStyle">bold</item>
-    </style>
 </resources>

@@ -297,7 +297,7 @@ class DetectionProcessor {
     }
 
     // 方向计算逻辑
-    private fun calculateDirection(box: RectF): String {
+    fun calculateDirection(box: RectF): String {
         if (imageWidth <= 0 || imageHeight <= 0) return "未知"
 
         // 使用图像实际尺寸归一化

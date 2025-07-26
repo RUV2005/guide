@@ -22,6 +22,9 @@ class LocationManager private constructor() : AMapLocationListener {
     private var locationOption: AMapLocationClientOption? = null
     var callback: LocationCallback? = null
     private var isWeatherButton = false // 用于区分按钮来源
+    // 新增：缓存定位
+    private var cachedLocation: AMapLocation? = null
+
 
     fun initialize(activity: Activity) {
         this.activityRef = WeakReference(activity)
@@ -95,26 +98,6 @@ class LocationManager private constructor() : AMapLocationListener {
             return false
         }
         return true
-    }
-
-    fun handlePermissionsResult(
-        requestCode: Int,
-        grantResults: IntArray
-    ) {
-        if (requestCode == REQUEST_CODE_PERMISSION) {
-            var allGranted = true
-            for (result in grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false
-                    break
-                }
-            }
-            if (allGranted) {
-                startLocationService()
-            } else {
-                notifyError(12, "缺少必要的定位权限")
-            }
-        }
     }
 
     override fun onLocationChanged(aMapLocation: AMapLocation?) {
@@ -277,5 +260,34 @@ class LocationManager private constructor() : AMapLocationListener {
             Log.e("LocationFallbackUtil", "逆地理API异常", e)
         }
         "未知位置"
+    }
+
+    /**
+     * 仅用于 SplashActivity 预加载：同步拿一次缓存/上一次定位
+     * 不启动真正定位，耗时 < 50 ms
+     */
+    suspend fun preloadCached(context: Context): AMapLocation? = withContext(Dispatchers.IO) {
+        if (cachedLocation != null) return@withContext cachedLocation
+
+        val client = AMapLocationClient(context)
+        val option = AMapLocationClientOption().apply {
+            isOnceLocation = true          // 只要一次
+            isLocationCacheEnable = true   // 允许返回缓存
+        }
+        client.setLocationOption(option)
+
+        try {
+            val deferred = CompletableDeferred<AMapLocation?>()
+            client.setLocationListener { loc ->
+                cachedLocation = loc
+                deferred.complete(loc)
+                client.stopLocation()
+                client.onDestroy()
+            }
+            client.startLocation()
+            deferred.await()
+        } catch (e: Exception) {
+            null
+        }
     }
 }

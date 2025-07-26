@@ -1,5 +1,5 @@
 <!-- res/values/themes.xml -->
-<resources xmlns:tools="http://schemas.android.com/tools">
+<resources>
     <!-- 应用主主题 -->
     <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">@color/purple_500</item>

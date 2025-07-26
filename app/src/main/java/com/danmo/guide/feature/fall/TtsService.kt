@@ -35,17 +35,29 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         setupUtteranceListener()
     }
 
+
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             val result = tts.setLanguage(Locale.CHINA)
-            if (result != TextToSpeech.LANG_COUNTRY_AVAILABLE && result != TextToSpeech.LANG_AVAILABLE) {
-                Log.e("TtsService", "Language not supported")
+
+            isTtsReady = when (result) {
+                TextToSpeech.LANG_AVAILABLE,
+                TextToSpeech.LANG_COUNTRY_AVAILABLE,
+                TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> true
+                else -> {
+                    Log.e("TtsService", "TTS语言不支持或缺失数据: $result")
+                    false
+                }
             }
-            isTtsReady = true
-            processNextInQueue()
-            Log.d("TtsService", "TTS initialized successfully")
+
+            if (isTtsReady) {
+                Log.d("TtsService", "TTS初始化成功，语言已设置")
+                processNextInQueue()
+            } else {
+                Log.e("TtsService", "语言设置失败，TTS不可用")
+            }
         } else {
-            Log.e("TtsService", "TTS initialization failed")
+            Log.e("TtsService", "TTS初始化失败")
         }
     }
 

@@ -52,9 +52,6 @@ object Protocol {
     const val COMPRESSION_NONE = 0x00 // 无压缩
     const val COMPRESSION_GZIP = 0x01 // GZIP压缩
 
-    // 标志位
-    const val FLAG_EVENT = 0x04 // 携带事件ID
-
     // 客户端事件ID
     const val START_CONNECTION = 1
     const val FINISH_CONNECTION = 2
@@ -322,7 +319,6 @@ class VoiceCallActivity : AppCompatActivity() {
                 messageType = Protocol.FULL_CLIENT_REQUEST,
                 serialization = Protocol.SERIALIZATION_JSON,
                 compression = Protocol.COMPRESSION_NONE,
-                flags = Protocol.FLAG_EVENT,
                 eventId = Protocol.START_CONNECTION,
                 sessionId = null,
                 payload = payload
@@ -363,7 +359,6 @@ class VoiceCallActivity : AppCompatActivity() {
                 messageType = Protocol.FULL_CLIENT_REQUEST,
                 serialization = Protocol.SERIALIZATION_JSON,
                 compression = Protocol.COMPRESSION_GZIP,
-                flags = Protocol.FLAG_EVENT,
                 eventId = Protocol.START_SESSION,
                 sessionId = sessionId,
                 payload = compressed
@@ -383,7 +378,6 @@ class VoiceCallActivity : AppCompatActivity() {
         messageType: Int,
         serialization: Int,
         compression: Int,
-        flags: Int,
         eventId: Int,
         sessionId: String?,
         payload: ByteArray
@@ -542,7 +536,6 @@ class VoiceCallActivity : AppCompatActivity() {
                 messageType = Protocol.AUDIO_ONLY_REQUEST,
                 serialization = Protocol.SERIALIZATION_RAW,
                 compression = Protocol.COMPRESSION_GZIP,
-                flags = Protocol.FLAG_EVENT,
                 eventId = Protocol.TASK_REQUEST,
                 sessionId = sessionId,
                 payload = compressed
@@ -634,15 +627,6 @@ class VoiceCallActivity : AppCompatActivity() {
         }
     }
 
-    private fun shortArrayToByteArray(samples: ShortArray): ByteArray {
-        val bytes = ByteArray(samples.size * 2)
-        ByteBuffer.wrap(bytes)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .asShortBuffer()
-            .put(samples)
-        return bytes
-    }
-
     private fun finishCall() {
         if (!isRunning) return
 
@@ -655,7 +639,6 @@ class VoiceCallActivity : AppCompatActivity() {
                 messageType = Protocol.FULL_CLIENT_REQUEST,
                 serialization = Protocol.SERIALIZATION_JSON,
                 compression = Protocol.COMPRESSION_NONE,
-                flags = Protocol.FLAG_EVENT,
                 eventId = Protocol.FINISH_SESSION,
                 sessionId = sessionId,
                 payload = finishMsg
@@ -667,7 +650,6 @@ class VoiceCallActivity : AppCompatActivity() {
                 messageType = Protocol.FULL_CLIENT_REQUEST,
                 serialization = Protocol.SERIALIZATION_JSON,
                 compression = Protocol.COMPRESSION_NONE,
-                flags = Protocol.FLAG_EVENT,
                 eventId = Protocol.FINISH_CONNECTION,
                 sessionId = null,
                 payload = "{}".toByteArray()

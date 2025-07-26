@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -15,14 +16,14 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_margin="16dp"
-        android:contentDescription="返回按钮"
+        android:contentDescription="@string/back_button_desc"
         android:src="@drawable/ic_back"
         app:backgroundTint="@color/white"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:tint="@android:color/black" />
 
-    <!-- 浮动按钮 -->
+    <!-- 拍照按钮 -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/btnCapture"
         android:layout_width="wrap_content"
@@ -30,7 +31,7 @@
         android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"
         android:layout_marginBottom="40dp"
-        android:contentDescription="拍照按钮"
+        android:contentDescription="@string/capture_button_desc"
         android:src="@drawable/ic_camera"
         app:backgroundTint="@color/white" />
 
@@ -43,7 +44,8 @@
         android:layout_alignParentBottom="true"
         android:layout_marginEnd="40dp"
         android:layout_marginBottom="40dp"
-        android:contentDescription="播报按钮"
+        android:contentDescription="@string/speak_button_desc"
         android:src="@drawable/ic_switch_speaker"
-        app:backgroundTint="@color/white" />
+        app:backgroundTint="@color/white"
+        tools:ignore="RelativeOverlap" />
 </RelativeLayout>

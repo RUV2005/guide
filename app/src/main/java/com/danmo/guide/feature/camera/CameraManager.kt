@@ -3,7 +3,14 @@ package com.danmo.guide.feature.camera
 import android.content.Context
 import android.util.Log
 import android.util.Size
-import androidx.camera.core.*
+import androidx.camera.core.CameraControl
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
@@ -19,28 +26,47 @@ class CameraManager(
     private var cameraControl: CameraControl? = null
     private var isShutdown = false
 
+    /**
+     * 初始化 CameraX 相机，使用最新 API
+     */
     fun initializeCamera(surfaceProvider: Preview.SurfaceProvider) {
         if (isShutdown) return
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             try {
                 cameraProvider = future.get()
-                val size = Size(480, 360)          // 清晰度↑
+
+                // 使用 ResolutionSelector 替代已废弃的 setTargetResolution
+                val resolutionSelector = ResolutionSelector.Builder()
+                    .setAspectRatioStrategy(
+                        AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
+                    )
+                    .setResolutionStrategy(
+                        ResolutionStrategy(
+                            Size(480, 360),
+                            ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER
+                        )
+                    )
+                    .build()
+
                 val preview = Preview.Builder()
-                    .setTargetResolution(size)
+                    .setResolutionSelector(resolutionSelector)
                     .build()
                     .apply { setSurfaceProvider(surfaceProvider) }
 
                 val imageAnalysis = ImageAnalysis.Builder()
+                    .setResolutionSelector(resolutionSelector)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .setTargetResolution(size)
                     .build()
-                    .also { it.setAnalyzer(executor, ThrottledAnalyzer(analyzer, 8)) } // 8 fps
+                    .also {
+                        it.setAnalyzer(executor, ThrottledAnalyzer(analyzer, 8))
+                    }
 
                 val selector = CameraSelector.Builder()
                     .requireLensFacing(CameraSelector.LENS_FACING_BACK)
                     .build()
 
+                cameraProvider?.unbindAll()
                 cameraProvider?.bindToLifecycle(
                     context as LifecycleOwner,
                     selector,
@@ -48,7 +74,7 @@ class CameraManager(
                     imageAnalysis
                 )?.let { camera ->
                     cameraControl = camera.cameraControl
-                    Log.d("CameraManager", "480×360 @ 8 fps 已启用")
+                    Log.d("CameraManager", "480×360 @ 8 fps 已启用（ResolutionSelector）")
                 }
             } catch (e: Exception) {
                 Log.e("CameraManager", "初始化失败", e)
@@ -56,10 +82,12 @@ class CameraManager(
         }, ContextCompat.getMainExecutor(context))
     }
 
+    /** 开关闪光灯 */
     fun enableTorchMode(enabled: Boolean) {
         cameraControl?.enableTorch(enabled)
     }
 
+    /** 关闭相机并释放资源 */
     fun shutdown() {
         isShutdown = true
         cameraProvider?.unbindAll()
@@ -68,7 +96,9 @@ class CameraManager(
 
     fun isShutdown(): Boolean = isShutdown
 
-    /* 节流器支持任意帧率 */
+    /**
+     * 帧率节流器
+     */
     private class ThrottledAnalyzer(
         private val delegate: ImageAnalysis.Analyzer,
         targetFps: Int

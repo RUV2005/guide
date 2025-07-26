@@ -25,8 +25,7 @@ object VoskRecognizerManager {
     private var recognizer: Recognizer? = null
     private var speechService: SpeechService? = null
 
-    var isInitialized: Boolean = false
-        private set
+    private var isInitialized: Boolean = false
 
     /* 主入口：保证模型下载、校验、初始化 */
     suspend fun initWithDownload(context: Context): Boolean = withContext(Dispatchers.IO) {
@@ -103,7 +102,7 @@ object VoskRecognizerManager {
                 }
         }
     }
-
+    @Suppress("SameReturnValue")
     private fun loadModel(modelPath: String): Boolean {
         if (isInitialized) return true
         model = Model(modelPath)

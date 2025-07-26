@@ -1,5 +1,6 @@
 package com.danmo.guide.ui.components
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -7,7 +8,6 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
-import android.view.accessibility.AccessibilityEvent
 import org.tensorflow.lite.task.vision.detector.Detection
 
 class OverlayView @JvmOverloads constructor(
@@ -47,15 +47,7 @@ class OverlayView @JvmOverloads constructor(
         modelH = h
     }
 
-    fun setStreamDisplayRect(rect: RectF) {
-        streamRect.set(rect)
-        isStreamMode = true
-    }
-
-    fun resetToCameraMode() {
-        isStreamMode = false
-    }
-
+    @SuppressLint("DrawAllocation")
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (detections.isEmpty()) return
@@ -119,18 +111,4 @@ class OverlayView @JvmOverloads constructor(
         }
     }
 
-    // 计算外置视频流在 Overlay 中的实际显示区域（4:3 → 任意 View）
-    fun calculateStreamDisplayRect(vw: Int, vh: Int): RectF {
-        val ratio = 4f / 3f
-        val viewRatio = vw.toFloat() / vh
-        return if (viewRatio > ratio) {
-            val h = vw / ratio
-            val top = (vh - h) / 2
-            RectF(0f, top, vw.toFloat(), top + h)
-        } else {
-            val w = vh * ratio
-            val left = (vw - w) / 2
-            RectF(left, 0f, left + w, vh.toFloat())
-        }
-    }
 }
