@@ -1,6 +1,5 @@
 package com.danmo.guide.feature.weather
 import android.util.Log
-import androidx.media3.common.BuildConfig
 import com.danmo.guide.BuildConfig
 import com.google.firebase.Firebase
 import com.google.firebase.perf.performance
@@ -54,7 +53,7 @@ suspend fun getWeather(lat: Double, lon: Double): WeatherData? {
             // 检查响应是否成功
             if (response!!.isSuccessful) {
                 // 读取并解析响应体为JSON字符串
-                response!!.body.string().let { json ->
+                response!!.body?.string().let { json ->
                     // 记录天气数据响应，用于调试
                     Log.d("Weather", "天气数据响应: $json")
                     // 将JSON字符串解析为WeatherData对象并返回

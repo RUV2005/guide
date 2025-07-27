@@ -82,6 +82,7 @@ android {
         compose true
         viewBinding true
         mlModelBinding true// 启用 View Binding
+        buildConfig true
     }
     packagingOptions {
         jniLibs {
@@ -128,11 +129,11 @@ dependencies {
 
     // TensorFlow Lite —— 统一使用旧版，避免 LiteRT 冲突
     //noinspection UseTomlInstead,Aligned16KB
-    implementation 'org.tensorflow:tensorflow-lite:2.17.0'
+    implementation 'org.tensorflow:tensorflow-lite:2.13.0'
     //noinspection UseTomlInstead,Aligned16KB
-    implementation 'org.tensorflow:tensorflow-lite-support:0.5.0'
+    implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
     //noinspection UseTomlInstead,Aligned16KB
-    implementation 'org.tensorflow:tensorflow-lite-gpu:2.17.0'
+    implementation 'org.tensorflow:tensorflow-lite-gpu:2.13.0'
     //noinspection UseTomlInstead,Aligned16KB
     implementation 'org.tensorflow:tensorflow-lite-task-vision:0.4.4'
     //noinspection UseTomlInstead,Aligned16KB
