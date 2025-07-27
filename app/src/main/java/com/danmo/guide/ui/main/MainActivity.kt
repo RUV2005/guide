@@ -54,6 +54,8 @@ package com.danmo.guide.ui.main
     import com.danmo.guide.ui.room.RoomActivity
     import com.danmo.guide.ui.settings.SettingsActivity
     import com.danmo.guide.ui.voicecall.VoiceCallActivity
+    import com.google.firebase.Firebase
+    import com.google.firebase.perf.performance
     import kotlinx.coroutines.Dispatchers
     import kotlinx.coroutines.Job
     import kotlinx.coroutines.delay
@@ -232,6 +234,18 @@ package com.danmo.guide.ui.main
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
 
+            // 插桩：监控应用启动时间
+            val appStartTrace = Firebase.performance.newTrace("app_start")
+            appStartTrace.start()
+
+            // 插桩：监控 UI 渲染时间
+            val uiRenderTrace = Firebase.performance.newTrace("ui_rendering")
+            uiRenderTrace.start()
+
+            // 插桩：监控功耗
+            val batteryTrace = Firebase.performance.newTrace("battery_usage")
+            batteryTrace.start()
+
             // 1. 布局绑定
             binding = ActivityMainBinding.inflate(layoutInflater)
             setContentView(binding.root)
@@ -298,6 +312,11 @@ package com.danmo.guide.ui.main
 
             // 8. 延迟播报（不变）
             ensureOutdoorModeAnnouncement()
+
+            // 结束插桩
+            uiRenderTrace.stop()
+            appStartTrace.stop()
+            batteryTrace.stop()
         }
 
         // 添加 handleVoiceCommand 方法
@@ -512,6 +531,9 @@ package com.danmo.guide.ui.main
         }
 
         private fun initCameraResources() {
+            val trace = Firebase.performance.newTrace("camera_initialization")
+            trace.start()
+
             if (!::cameraExecutor.isInitialized) {
                 cameraExecutor = Executors.newSingleThreadExecutor()
             }
@@ -523,6 +545,8 @@ package com.danmo.guide.ui.main
                 }
             }
             Log.d("Camera", "摄像头资源初始化完成: executor=${cameraExecutor.isShutdown}, manager=${::cameraManager.isInitialized}")
+
+            trace.stop()
         }
 
 
@@ -599,6 +623,7 @@ package com.danmo.guide.ui.main
         // 修改现有的传感器处理
         @RequiresApi(Build.VERSION_CODES.O)
         override fun onSensorChanged(event: SensorEvent) {
+
             when (event.sensor.type) {
                 Sensor.TYPE_ACCELEROMETER -> {
                     fallDetector.onSensorChanged(event)
@@ -608,6 +633,7 @@ package com.danmo.guide.ui.main
 
                 Sensor.TYPE_LIGHT -> handleLightSensor(event)
             }
+
         }
 
         // 在摇晃检测中
@@ -632,6 +658,9 @@ package com.danmo.guide.ui.main
             if (isRecognitionStarting || ttsService?.isSpeaking == true) return
             isRecognitionStarting = true
             lifecycleScope.launch(Dispatchers.Main) {
+                val voiceRecognitionTrace = Firebase.performance.newTrace("voice_recognition_initialization")
+                voiceRecognitionTrace.start()
+
                 try {
                     VoskRecognizerManager.stopListening()
                     VoskRecognizerManager.destroy()
@@ -657,6 +686,7 @@ package com.danmo.guide.ui.main
                     showToast(getString(R.string.speak_speech_start_failed))
                 } finally {
                     isRecognitionStarting = false
+                    voiceRecognitionTrace.stop()
                 }
             }
         }
@@ -909,7 +939,7 @@ package com.danmo.guide.ui.main
                     val bitmap = ImageProxyUtils.toBitmap(imageProxy) ?: return@launch
                     val tensorImage = TensorImage.fromBitmap(bitmap)
                     val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-                    val results = withContext(objectDetectorHelper.gpuThread) {
+                    val results = withContext(objectDetectorHelper.getGpuThread())  {
                         objectDetectorHelper.detect(bitmap, rotationDegrees)
                     }
                     overlayView.setModelInputSize(tensorImage.width, tensorImage.height)
@@ -921,35 +951,40 @@ package com.danmo.guide.ui.main
             }
         }
 
-        override fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                try {
-                    // 在IO线程执行网络请求
-                    val weatherData = weatherManager.getWeather(lat, lon)
+    override fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String) {
+        val networkRequestTrace = Firebase.performance.newTrace("network_request_weather")
+        networkRequestTrace.start()
 
-                    // 切换到主线程更新UI
-                    withContext(Dispatchers.Main) {
-                        if (weatherData == null) {
-                            showToast("天气获取失败")
-                            ttsService?.speak("获取天气信息失败")
-                            binding.statusText.text = "天气获取失败"
-                            return@withContext
-                        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // 在IO线程执行网络请求
+                val weatherData = weatherManager.getWeather(lat, lon)
 
-                        val speechText = weatherManager.generateSpeechText(weatherData, cityName)
-                        speakWeather(speechText)
-                    }
-                } catch (e: Exception) {
-                    // 切换到主线程处理错误
-                    withContext(Dispatchers.Main) {
-                        Log.e("Weather", "获取天气失败", e)
-                        showToast("天气获取失败: ${e.message}")
-                        ttsService?.speak("天气服务异常，请稍后重试")
+                // 切换到主线程更新UI
+                withContext(Dispatchers.Main) {
+                    if (weatherData == null) {
+                        showToast("天气获取失败")
+                        ttsService?.speak("获取天气信息失败")
                         binding.statusText.text = "天气获取失败"
+                        return@withContext
                     }
+
+                    val speechText = weatherManager.generateSpeechText(weatherData, cityName)
+                    speakWeather(speechText)
                 }
+            } catch (e: Exception) {
+                // 切换到主线程处理错误
+                withContext(Dispatchers.Main) {
+                    Log.e("Weather", "获取天气失败", e)
+                    showToast("天气获取失败: ${e.message}")
+                    ttsService?.speak("天气服务异常，请稍后重试")
+                    binding.statusText.text = "天气获取失败"
+                }
+            } finally {
+                networkRequestTrace.stop()
             }
         }
+    }
 
         override fun speakWeather(message: String) {
             Log.d("Weather", "播报天气: $message")
@@ -1060,6 +1095,9 @@ package com.danmo.guide.ui.main
 
         // 2. 解析 MJPEG（后台线程）
         private fun parseMjpegStreamOptimized(stream: InputStream) {
+            val videoStreamTrace = Firebase.performance.newTrace("video_stream_parsing")
+            videoStreamTrace.start()
+
             val buffer = ByteArray(4096)
             leftoverData = ByteArray(0)
             while (isStreaming && !Thread.currentThread().isInterrupted) {
@@ -1068,6 +1106,8 @@ package com.danmo.guide.ui.main
                 val data = leftoverData + buffer.copyOfRange(0, len)
                 leftoverData = processFrameBuffer(data)
             }
+
+            videoStreamTrace.stop()
         }
 
 
@@ -1116,7 +1156,7 @@ package com.danmo.guide.ui.main
                 // 2. 后台识别（协程）
                 lifecycleScope.launch(Dispatchers.IO) {
                     TensorImage.fromBitmap(bmp)
-                    val results = withContext(objectDetectorHelper.gpuThread) {
+                    val results = withContext(objectDetectorHelper.getGpuThread())  {
                         objectDetectorHelper.detect(bmp, 0)
                     }
 

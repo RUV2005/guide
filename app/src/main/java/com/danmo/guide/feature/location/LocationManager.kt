@@ -10,6 +10,8 @@ import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
 import com.amap.api.location.AMapLocationListener
+import com.google.firebase.Firebase
+import com.google.firebase.perf.performance
 import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -267,6 +269,8 @@ class LocationManager private constructor() : AMapLocationListener {
      * 不启动真正定位，耗时 < 50 ms
      */
     suspend fun preloadCached(context: Context): AMapLocation? = withContext(Dispatchers.IO) {
+        val trace = Firebase.performance.newTrace("location_data_loading")
+        trace.start()
         if (cachedLocation != null) return@withContext cachedLocation
 
         val client = AMapLocationClient(context)
@@ -276,6 +280,8 @@ class LocationManager private constructor() : AMapLocationListener {
         }
         client.setLocationOption(option)
 
+        // 加载数据的代码
+        trace.stop()
         try {
             val deferred = CompletableDeferred<AMapLocation?>()
             client.setLocationListener { loc ->
@@ -286,8 +292,10 @@ class LocationManager private constructor() : AMapLocationListener {
             }
             client.startLocation()
             deferred.await()
+
         } catch (e: Exception) {
             null
         }
+
     }
 }

@@ -4,17 +4,19 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import com.danmo.guide.feature.powermode.PowerMode
+import com.google.firebase.Firebase
+import com.google.firebase.perf.performance
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.Rot90Op
+import org.tensorflow.lite.task.core.BaseOptions
 import org.tensorflow.lite.task.vision.detector.Detection
 import org.tensorflow.lite.task.vision.detector.ObjectDetector
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.util.concurrent.Executors
 
 class ObjectDetectorHelper(
@@ -29,61 +31,92 @@ class ObjectDetectorHelper(
          * 静态方法，用于预加载模型
          */
         fun preload(context: Context) {
+            val trace = Firebase.performance.newTrace("tflite_model_loading")
+            trace.start()
             try {
-                // 将模型文件从 assets 复制到文件系统
+                // 1. 把模型拷到 filesDir
                 val modelFile = File(context.filesDir, MODEL_FILE)
                 if (!modelFile.exists()) {
-                    val inputStream: InputStream = context.assets.open(MODEL_FILE)
-                    val outputStream = FileOutputStream(modelFile)
-                    inputStream.copyTo(outputStream)
-                    inputStream.close()
-                    outputStream.close()
+                    context.assets.open(MODEL_FILE).use { ins ->
+                        FileOutputStream(modelFile).use { outs ->
+                            ins.copyTo(outs)
+                        }
+                    }
                 }
 
-                // 加载模型
-                val detector = ObjectDetector.createFromFileAndOptions(
-                    modelFile, // 直接传递 File 对象
-                    ObjectDetector.ObjectDetectorOptions.builder()
-                        .setScoreThreshold(confidenceThreshold)
-                        .build()
-                )
+                // 2. 最保守的 CPU-only 选项
+                val options = ObjectDetector.ObjectDetectorOptions.builder()
+                    .setScoreThreshold(confidenceThreshold)
+                    .setBaseOptions(
+                        BaseOptions.builder()
+                            .setNumThreads(1)          // 单线程，省内存
+                            // .useGpu()               // 显式关闭 GPU
+                            // .useNnapi()             // 显式关闭 NNAPI
+                            .build()
+                    )
+                    .build()
+
+                // 3. 打开 TFLite 调试日志
+                System.setProperty("tflite.native.level", "DEBUG")
+
+                val detector = ObjectDetector.createFromFileAndOptions(modelFile, options)
                 Log.d("ObjectDetectorHelper", "模型预加载完成")
-                detector.close() // 关闭模型，避免内存泄漏
+                detector.close()
             } catch (e: Exception) {
                 Log.e("ObjectDetectorHelper", "模型预加载失败", e)
+            } finally {
+                trace.stop()
             }
         }
     }
 
-    val gpuThread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    // 单线程 + 单任务队列，防止 FTL 内存溢出
+    private val cpuThread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
     private var adaptiveSkip = 6
     private var frameCounter = 0
 
-    private val detector get() = ObjectDetectorCache.get(context, powerMode)
+    private val detector get() = ObjectDetectorCache.get(context, powerMode).also {
+        val trace = Firebase.performance.newTrace("detector_initialization")
+        trace.start()
+        // 初始化逻辑
+        trace.stop()
+    }
 
     private var powerMode: PowerMode = PowerMode.BALANCED
 
     fun setPowerMode(mode: PowerMode) {
+        val trace = Firebase.performance.newTrace("power_mode_switch")
+        trace.start()
         powerMode = mode
         listener?.onInitialized()
+        trace.stop()
     }
 
     suspend fun detect(bitmap: Bitmap, rotationDegrees: Int = 0): List<Detection> =
-        withContext(gpuThread) {
+        withContext(cpuThread) {
             synchronized(this) {
                 if ((++frameCounter % adaptiveSkip) != 0) return@withContext emptyList()
+
+                val trace = Firebase.performance.newTrace("tflite_inference")
+                trace.start()
+
                 val tensorImage = TensorImage.fromBitmap(bitmap)
                 val processed = ImageProcessor.Builder()
                     .add(Rot90Op(-(rotationDegrees / 90).coerceIn(0..3)))
                     .build()
                     .process(tensorImage)
-                detector.detect(processed)
+
+                // 再次打开调试开关，保证这次 detect 也能打印
+                System.setProperty("tflite.native.level", "DEBUG")
+
+                val results = detector.detect(processed)
+                trace.stop()
+                results
             }
         }
 
-    fun getGpuThread(): CoroutineDispatcher {
-        return gpuThread
-    }
+    fun getGpuThread(): CoroutineDispatcher = cpuThread   // 名字保持兼容
 
     interface DetectionListener {
         fun onInitialized()

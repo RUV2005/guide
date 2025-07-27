@@ -1,10 +1,9 @@
 package com.danmo.guide.feature.detection
 
 import android.content.Context
-import android.os.Build
+import com.danmo.guide.feature.powermode.PowerMode
 import org.tensorflow.lite.task.core.BaseOptions
 import org.tensorflow.lite.task.vision.detector.ObjectDetector
-import com.danmo.guide.feature.powermode.PowerMode
 
 object ObjectDetectorCache {
     private val cache = mutableMapOf<Int, ObjectDetector>()
@@ -26,13 +25,13 @@ object ObjectDetectorCache {
                 }
             )
             // 可选：动态选择 GPU / NNAPI
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                when (mode) {
-                    PowerMode.LOW_POWER -> useNnapi()
-                    PowerMode.HIGH_ACCURACY -> useGpu()
-                    else -> {}
-                }
-            }
+//            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+//                when (mode) {
+//                    PowerMode.LOW_POWER -> useNnapi()
+//                    PowerMode.HIGH_ACCURACY -> useGpu()
+//                    else -> {}
+//                }
+//            }
         }.build()
 
         return ObjectDetector.createFromFileAndOptions(

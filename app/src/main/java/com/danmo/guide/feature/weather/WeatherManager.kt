@@ -1,6 +1,9 @@
 package com.danmo.guide.feature.weather
 import android.util.Log
+import androidx.media3.common.BuildConfig
 import com.danmo.guide.BuildConfig
+import com.google.firebase.Firebase
+import com.google.firebase.perf.performance
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +33,9 @@ class WeatherManager {
  * @return WeatherData? 返回WeatherData对象，表示天气数据，如果请求失败或解析错误，则返回null
  */
 suspend fun getWeather(lat: Double, lon: Double): WeatherData? {
+    val trace = Firebase.performance.newTrace("network_request_weather")
+    trace.start()
+
     // 初始化响应对象，用于存储HTTP响应
     var response: Response? = null
     // 切换到IO调度器执行网络请求，以避免阻塞主线程
@@ -48,7 +54,7 @@ suspend fun getWeather(lat: Double, lon: Double): WeatherData? {
             // 检查响应是否成功
             if (response!!.isSuccessful) {
                 // 读取并解析响应体为JSON字符串
-                response!!.body?.string()?.let { json ->
+                response!!.body.string().let { json ->
                     // 记录天气数据响应，用于调试
                     Log.d("Weather", "天气数据响应: $json")
                     // 将JSON字符串解析为WeatherData对象并返回
@@ -65,6 +71,7 @@ suspend fun getWeather(lat: Double, lon: Double): WeatherData? {
         } finally {
             // 关闭响应以释放资源
             response?.close()
+            trace.stop()
         }
     }
 }
@@ -73,13 +80,13 @@ suspend fun getWeather(lat: Double, lon: Double): WeatherData? {
         return buildString {
             try {
                 // 如果传入的时间为 null，则获取系统当前时间
-                val currentTime = time ?: System.currentTimeMillis().let {
+                time ?: System.currentTimeMillis().let {
                     SimpleDateFormat("HH:mm", Locale.getDefault()).format(it)
                 }
                 val temp = weather.main?.temp?.toInt() ?: 999
-                val feelsLike = weather.main?.feelsLike?.toInt() ?: 999
+                weather.main?.feelsLike?.toInt() ?: 999
                 val weatherDesc = weather.weather?.firstOrNull()?.description ?: ""
-                val windSpeed = weather.wind?.speed?.toInt() ?: 0
+                weather.wind?.speed?.toInt() ?: 0
                 Log.d("Weather", "生成播报文本: 城市=$cityName, 温度=$temp, 天气描述=$weatherDesc")
                 // 温度播报
                 when {
@@ -101,7 +108,6 @@ suspend fun getWeather(lat: Double, lon: Double): WeatherData? {
                 }
             } catch (e: Exception) {
                 Log.e("Weather", "生成语音文本失败", e)
-                "天气小助手正在努力更新数据，稍后再来问我吧～"
             }
         }.run {
             // 智能标点处理
