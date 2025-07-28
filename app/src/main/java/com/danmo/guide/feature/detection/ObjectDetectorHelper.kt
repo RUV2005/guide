@@ -74,7 +74,6 @@ class ObjectDetectorHelper(
     private val cpuThread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
     private var adaptiveSkip = 6
-    private var frameCounter = 0
 
     private val detector get() = ObjectDetectorCache.get(context, powerMode).also {
         val trace = Firebase.performance.newTrace("detector_initialization")
@@ -96,7 +95,6 @@ class ObjectDetectorHelper(
     suspend fun detect(bitmap: Bitmap, rotationDegrees: Int = 0): List<Detection> =
         withContext(cpuThread) {
             synchronized(this) {
-                if ((++frameCounter % adaptiveSkip) != 0) return@withContext emptyList()
 
                 val trace = Firebase.performance.newTrace("tflite_inference")
                 trace.start()

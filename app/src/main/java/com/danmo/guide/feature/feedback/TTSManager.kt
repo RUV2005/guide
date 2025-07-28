@@ -44,6 +44,8 @@ class TTSManager(context: Context) : TextToSpeech.OnInitListener {
     }
 
     private fun setupTTS() {
+        isTtsReady = true
+        speak("", "warmup")   // 提前唤醒引擎
         when (tts.setLanguage(Locale.CHINESE)) {
             TextToSpeech.LANG_MISSING_DATA -> handleMissingLanguageData()
             TextToSpeech.LANG_NOT_SUPPORTED -> showToast("不支持中文语音 Chinese not supported", true)
@@ -81,6 +83,7 @@ class TTSManager(context: Context) : TextToSpeech.OnInitListener {
                 putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
                 putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_SYSTEM)
             }
+            Log.d("TTS_DEBUG", "TTS 尝试播报：$text") // 添加日志
             tts.speak(text, TextToSpeech.QUEUE_ADD, params, utteranceId)
         } catch (e: Exception) {
             Log.e("TTS", "播报失败 Speech failed: ${e.message}")

@@ -124,21 +124,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
-        android:layout_margin="16dp"
+        android:layout_marginLeft="16dp"
+        android:layout_marginBottom="50dp"
         android:contentDescription="@string/manual_location"
         android:src="@drawable/gps"
-        app:backgroundTint="@color/white"
-        app:elevation="8dp" />
-
-    <!-- 设置 -->
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fabSettings"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
-        android:contentDescription="@string/settings"
-        android:src="@drawable/ic_settings"
         app:backgroundTint="@color/white"
         app:elevation="8dp" />
 
@@ -148,10 +137,94 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center"
-        android:layout_margin="16dp"
+        android:layout_marginBottom="50dp"
         android:contentDescription="@string/camera_switch_button"
         android:src="@drawable/ic_camera_switch"
         app:backgroundTint="@color/white"
         app:elevation="8dp" />
 
+    <!-- 设置 -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fabSettings"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginRight="16dp"
+        android:layout_marginBottom="50dp"
+        android:contentDescription="@string/settings"
+        android:src="@drawable/ic_settings"
+        app:backgroundTint="@color/white"
+        app:elevation="8dp" />
+
+
+    <!-- 底部性能面板：一行三列，左右撑满 -->
+    <LinearLayout
+        android:id="@+id/bottomPerfPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="horizontal"
+        android:background="#CC000000"
+        android:padding="8dp">
+
+        <TextView
+            android:id="@+id/tvFps"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="FPS: --"
+            android:textColor="#FFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvGpu"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="GPU: --ms"
+            android:textColor="#FFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvCpu"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="CPU: --%"
+            android:textColor="#FFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvMem"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="MEM: --MB"
+            android:textColor="#FFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvTemp"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="BAT: --°C"
+            android:textColor="#FFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvInference"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="AI: --ms"
+            android:textColor="#FFF"
+            android:textSize="11sp" />
+    </LinearLayout>
 </FrameLayout>

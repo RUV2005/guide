@@ -10,7 +10,6 @@ package com.danmo.guide.ui.main
     import android.content.IntentFilter
     import android.content.ServiceConnection
     import android.content.pm.PackageManager
-    import android.graphics.Bitmap
     import android.graphics.BitmapFactory
     import android.hardware.Sensor
     import android.hardware.SensorEvent
@@ -24,7 +23,9 @@ package com.danmo.guide.ui.main
     import android.os.HandlerThread
     import android.os.IBinder
     import android.os.Looper
+    import android.os.SystemClock
     import android.util.Log
+    import android.view.Choreographer
     import android.view.View
     import android.widget.Toast
     import androidx.activity.ComponentActivity
@@ -45,7 +46,9 @@ package com.danmo.guide.ui.main
     import com.danmo.guide.feature.fall.TtsService
     import com.danmo.guide.feature.feedback.DetectionProcessor
     import com.danmo.guide.feature.feedback.FeedbackManager
+    import com.danmo.guide.feature.init.InitManager
     import com.danmo.guide.feature.location.LocationManager
+    import com.danmo.guide.feature.performancemonitor.PerformanceMonitor
     import com.danmo.guide.feature.powermode.PowerMode
     import com.danmo.guide.feature.vosk.VoskRecognizerManager
     import com.danmo.guide.feature.weather.WeatherManager
@@ -63,7 +66,6 @@ package com.danmo.guide.ui.main
     import kotlinx.coroutines.withContext
     import okhttp3.OkHttpClient
     import okhttp3.Request
-    import org.tensorflow.lite.support.image.TensorImage
     import org.tensorflow.lite.task.vision.detector.Detection
     import org.vosk.android.RecognitionListener
     import java.io.IOException
@@ -94,6 +96,19 @@ package com.danmo.guide.ui.main
         private var timerJob: Job? = null
         private val reconnectDelay = 5000L
         private val maxRetries = 5
+        private val perfMonitor by lazy { PerformanceMonitor(this) }
+        private var lastFrameNanos = 0L
+
+    private val frameCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (lastFrameNanos != 0L) {
+                val costMs = (frameTimeNanos - lastFrameNanos) / 1_000_000.0
+                perfMonitor.recordGpuFrame(costMs)
+            }
+            lastFrameNanos = frameTimeNanos
+            Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
 
 
 
@@ -169,7 +184,6 @@ package com.danmo.guide.ui.main
     override fun onError(exception: Exception?) {
         Log.e("VOSK_ERROR", "语音识别出错: ${exception?.message}", exception)
         runOnUiThread {
-            binding.statusText.text = "语音识别出错"
             ttsService?.speak("语音识别出错，请重试")
         }
     }
@@ -220,7 +234,6 @@ package com.danmo.guide.ui.main
         private fun announceOutdoorMode() {
             if (!hasOutdoorModeAnnounced && isTtsBound && ttsService != null) {
                 runOnUiThread {
-                    binding.statusText.text = "当前模式: 户外模式"
                 }
                 ttsService?.speak("当前为户外模式", true)
                 hasOutdoorModeAnnounced = true
@@ -275,8 +288,11 @@ package com.danmo.guide.ui.main
             locationManager.callback = this
 
             // 4-2 Vosk 已预加载，直接设置状态即可
-            if (!com.danmo.guide.feature.init.InitManager.voskReady) {
-                showToast("Vosk 模型未就绪")
+            lifecycleScope.launch {
+                delay(3000) // 等 3 秒再检查
+                if (!InitManager.voskReady) {
+                    showToast("语音模型加载中，请稍后重试语音功能")
+                }
             }
 
             // 4-3 缓存定位：如果 Splash 已拿到就立即显示
@@ -312,6 +328,19 @@ package com.danmo.guide.ui.main
 
             // 8. 延迟播报（不变）
             ensureOutdoorModeAnnouncement()
+
+
+            // 启动监控并把结果贴到底部状态栏
+            perfMonitor.start(object : PerformanceMonitor.Callback {
+                override fun onMetrics(m: PerformanceMonitor.Metrics) {
+                    binding.tvFps.text        = "FPS:${m.fps}"
+                    binding.tvCpu.text        = "CPU:${m.cpuApp}%"
+                    binding.tvMem.text        = "MEM:当前:${m.memUsedMB}/极限:${m.memMaxMB}MB"
+                    binding.tvTemp.text       = "BAT:${m.batteryTemp}°C"
+                    binding.tvInference.text  = "AI推理延迟:${m.tfliteMs}ms"
+                    binding.tvGpu.text        = "GPU渲染时长:${m.gpuFrameMs}ms"
+                }
+            })
 
             // 结束插桩
             uiRenderTrace.stop()
@@ -489,9 +518,9 @@ package com.danmo.guide.ui.main
         private fun initFallDetection() {
             sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
             fallDetector = FallDetector(
-                context = this,
                 locationManager = locationManager,
-                weatherCallback = this,
+                context = this,
+                // ← 补上
                 sosNumber = "123456789000000"
             )
             fallDetector.init(this)
@@ -528,6 +557,8 @@ package com.danmo.guide.ui.main
             }
             // 确保在恢复时安排播报
             ensureOutdoorModeAnnouncement()
+            // ★ 启动 GPU 帧耗时采样
+            Choreographer.getInstance().postFrameCallback(frameCallback)
         }
 
         private fun initCameraResources() {
@@ -554,6 +585,7 @@ package com.danmo.guide.ui.main
             super.onPause()
             locationManager.stopLocation()
             fallDetector.stopListening()
+            Choreographer.getInstance().removeFrameCallback(frameCallback)
         }
 
         override fun onEmergencyDetected() {
@@ -708,7 +740,7 @@ package com.danmo.guide.ui.main
 
         override fun onTimeout() {
             runOnUiThread {
-                binding.statusText.text = "识别超时"
+                Log.w("Vosk","识别超时")
             }
         }
 
@@ -753,7 +785,6 @@ package com.danmo.guide.ui.main
         private fun startDetection() {
             isDetectionActive = true
             runOnUiThread {
-                binding.statusText.text = "障碍物检测已启动"
                 overlayView.visibility = View.VISIBLE
             }
             ttsService?.speak("已开启障碍物检测，请注意周围环境")
@@ -868,6 +899,7 @@ package com.danmo.guide.ui.main
             // 释放 Vosk 资源
             VoskRecognizerManager.stopListening()
             VoskRecognizerManager.destroy()
+            perfMonitor.stop()
             super.onDestroy()
         }
 
@@ -885,7 +917,7 @@ package com.danmo.guide.ui.main
 
         @Suppress("DEPRECATION")
         override fun onBackPressed() {
-            if (fallDetector.isFallDetected()) {
+            if (FallDetector.isFallDetected) {
                 handleFalseAlarm()
             } else {
                 super.onBackPressed()
@@ -931,25 +963,39 @@ package com.danmo.guide.ui.main
             }
         }
 
-        private fun createAnalyzer(): ImageAnalysis.Analyzer {
-            return ImageAnalysis.Analyzer { imageProxy ->
-                DetectionProcessor.getInstance(this@MainActivity)
-                    .updateImageDimensions(imageProxy.width, imageProxy.height)
-                lifecycleScope.launch(Dispatchers.IO) {
-                    val bitmap = ImageProxyUtils.toBitmap(imageProxy) ?: return@launch
-                    val tensorImage = TensorImage.fromBitmap(bitmap)
-                    val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-                    val results = withContext(objectDetectorHelper.getGpuThread())  {
-                        objectDetectorHelper.detect(bitmap, rotationDegrees)
-                    }
-                    overlayView.setModelInputSize(tensorImage.width, tensorImage.height)
-                    updateOverlayView(results, rotationDegrees)
-                    updateStatusUI(results)
-                    handleDetectionResults(results)
-                    imageProxy.close()
+    private fun createAnalyzer(): ImageAnalysis.Analyzer {
+        return ImageAnalysis.Analyzer { imageProxy ->
+            // 确保每一帧都调用 addFrame()
+            PerformanceMonitor.FrameStats.addFrame()
+            Log.d("FPS", "addFrame called in createAnalyzer")
+            DetectionProcessor.getInstance(this@MainActivity)
+                .updateImageDimensions(imageProxy.width, imageProxy.height)
+            lifecycleScope.launch(Dispatchers.IO) {
+                val bitmap = ImageProxyUtils.toBitmap(imageProxy) ?: return@launch
+                val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+
+                // ========= 记录 TFLite 耗时 =========
+                val t0 = SystemClock.elapsedRealtime()
+                val results = withContext(objectDetectorHelper.getGpuThread()) {
+                    objectDetectorHelper.detect(bitmap, rotationDegrees)
                 }
+                val t1 = SystemClock.elapsedRealtime()
+                Log.d("INFERENCE", "TFLite耗时: ${t1 - t0} ms")
+                perfMonitor.recordTflite(SystemClock.elapsedRealtime() - t0)
+                // ===================================
+
+                withContext(Dispatchers.Main) {
+                    val t2 = SystemClock.elapsedRealtime()
+                    overlayView.setModelInputSize(bitmap.width, bitmap.height)
+                    updateOverlayView(results, rotationDegrees)
+                    handleDetectionResults(results)
+                    updateStatusUI(results)
+                    Log.d("INFERENCE", "UI更新耗时: ${SystemClock.elapsedRealtime() - t2} ms")
+                }
+                imageProxy.close()
             }
         }
+    }
 
     override fun getWeatherAndAnnounce(lat: Double, lon: Double, cityName: String) {
         val networkRequestTrace = Firebase.performance.newTrace("network_request_weather")
@@ -965,7 +1011,6 @@ package com.danmo.guide.ui.main
                     if (weatherData == null) {
                         showToast("天气获取失败")
                         ttsService?.speak("获取天气信息失败")
-                        binding.statusText.text = "天气获取失败"
                         return@withContext
                     }
 
@@ -978,7 +1023,6 @@ package com.danmo.guide.ui.main
                     Log.e("Weather", "获取天气失败", e)
                     showToast("天气获取失败: ${e.message}")
                     ttsService?.speak("天气服务异常，请稍后重试")
-                    binding.statusText.text = "天气获取失败"
                 }
             } finally {
                 networkRequestTrace.stop()
@@ -1141,28 +1185,25 @@ package com.danmo.guide.ui.main
         // 4. 解码 + 渲染（后台线程 → 主线程）
         private fun renderFrame(imgData: ByteArray) {
             renderHandler.post {
-                val opts = BitmapFactory.Options().apply {
-                    inPreferredConfig = Bitmap.Config.RGB_565
-                    inSampleSize = 1
-                }
-                val bmp = BitmapFactory.decodeByteArray(imgData, 0, imgData.size, opts) ?: return@post
-                // 更新检测处理器中的图像尺寸
+                PerformanceMonitor.FrameStats.addFrame()
+                Log.d("FPS", "addFrame called in renderFrame")
+                val bmp = BitmapFactory.decodeByteArray(imgData, 0, imgData.size) ?: return@post
                 DetectionProcessor.getInstance(this@MainActivity)
                     .updateImageDimensions(bmp.width, bmp.height)
 
-                // 1. 先显示
-                binding.streamView.post { binding.streamView.setImageBitmap(bmp) }
-
-                // 2. 后台识别（协程）
                 lifecycleScope.launch(Dispatchers.IO) {
-                    TensorImage.fromBitmap(bmp)
-                    val results = withContext(objectDetectorHelper.getGpuThread())  {
+                    // ========= 记录 TFLite 耗时 =========
+                    val t0 = SystemClock.elapsedRealtime()
+                    val results = withContext(objectDetectorHelper.getGpuThread()) {
                         objectDetectorHelper.detect(bmp, 0)
                     }
+                    perfMonitor.recordTflite(SystemClock.elapsedRealtime() - t0)
+                    // ===================================
 
                     withContext(Dispatchers.Main) {
                         overlayView.setModelInputSize(bmp.width, bmp.height)
                         updateOverlayView(results, 0)
+                        handleDetectionResults(results)
                         updateStatusUI(results)
                     }
                 }

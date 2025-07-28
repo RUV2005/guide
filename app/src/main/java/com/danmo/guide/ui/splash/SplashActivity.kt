@@ -10,6 +10,7 @@ import androidx.lifecycle.lifecycleScope
 import com.amap.api.location.AMapLocationClient
 import com.danmo.guide.R
 import com.danmo.guide.feature.detection.ObjectDetectorHelper
+import com.danmo.guide.feature.init.InitManager
 import com.danmo.guide.feature.location.LocationManager
 import com.danmo.guide.feature.vosk.VoskRecognizerManager
 import com.danmo.guide.ui.main.MainActivity
@@ -40,7 +41,7 @@ class SplashActivity : AppCompatActivity() {
         appStartTrace.start()
 
         // 1. 后台线程真正做初始化
-        val initJob = lifecycleScope.launch {
+        lifecycleScope.launch {
             val cost = measureTimeMillis { doHeavyInit() }
             Log.d("SplashActivity", "初始化耗时: $cost ms")
             navigateToMain()
@@ -49,10 +50,7 @@ class SplashActivity : AppCompatActivity() {
         // 2. 兜底：最多 2 s
         lifecycleScope.launch {
             delay(TIMEOUT)
-            if (initJob.isActive) {
-                initJob.cancel()
-                navigateToMain()
-            }
+            navigateToMain() // 不取消 initJob，让 Vosk 继续初始化
         }
 
         // 结束插桩
@@ -60,15 +58,20 @@ class SplashActivity : AppCompatActivity() {
     }
 
     private suspend fun doHeavyInit() = withContext(Dispatchers.IO) {
-        // 高德定位 SDK 隐私合规初始化
         AMapLocationClient.updatePrivacyShow(this@SplashActivity, true, true)
         AMapLocationClient.updatePrivacyAgree(this@SplashActivity, true)
 
-        listOf(
-            async { ObjectDetectorHelper.preload(this@SplashActivity) },
-            async { VoskRecognizerManager.initWithDownload(this@SplashActivity) },
-            async { LocationManager.instance?.preloadCached(this@SplashActivity) }
-        ).awaitAll()
+        // 并发初始化，但不取消 Vosk
+        val detectorJob = async { ObjectDetectorHelper.preload(this@SplashActivity) }
+        val locationJob = async { LocationManager.instance?.preloadCached(this@SplashActivity) }
+        val voskJob = async {
+            val ok = VoskRecognizerManager.initWithDownload(this@SplashActivity)
+            InitManager.voskReady = ok
+            Log.d("SplashActivity", "Vosk 初始化结果: $ok")
+        }
+
+        // 只等待 detector 和 location，Vosk 允许后台完成
+        awaitAll(detectorJob, locationJob)
     }
 
     private fun navigateToMain() {

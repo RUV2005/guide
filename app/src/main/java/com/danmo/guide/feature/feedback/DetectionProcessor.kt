@@ -9,7 +9,7 @@ import java.util.concurrent.*
 import kotlin.math.max
 import kotlin.math.min
 
-private const val POSITION_CHANGE_COOLDOWN = 2000L
+private const val POSITION_CHANGE_COOLDOWN = 0L
 private var imageWidth = 320f // 默认模型输入尺寸
 private var imageHeight = 320f
 
@@ -38,7 +38,7 @@ class DetectionProcessor {
     companion object {
         private const val BATCH_INTERVAL_MS = 500L
         private const val MIN_REPORT_INTERVAL_MS = 1000L
-        private const val DEFAULT_CONFIDENCE_THRESHOLD = 0.4f
+        private const val DEFAULT_CONFIDENCE_THRESHOLD = 0.1f
         private val DANGEROUS_LABELS = setOf("car", "person", "bus", "truck", "motorcycle", "bicycle","traffic light")
 
         // 大区域定义
@@ -161,6 +161,7 @@ class DetectionProcessor {
                 positionChangeTimes[label] = System.currentTimeMillis()
 
                 buildDetectionMessage(result, label, direction)?.let { (message, dir, pri) ->
+                    Log.d("TTS_DEBUG", "生成单个检测消息：$message") // 添加日志
                     messageQueueManager.enqueueMessage(
                         message = message,
                         direction = dir,
@@ -201,6 +202,7 @@ class DetectionProcessor {
     }
 
     // 构建检测消息
+// 构建检测消息
     private fun buildDetectionMessage(
         result: Detection,
         label: String,
@@ -222,8 +224,11 @@ class DetectionProcessor {
             shouldReport(context, direction) -> {
                 context.lastReportTime = System.currentTimeMillis()
                 context.speedFactor = min(2.0f, context.speedFactor * 1.1f)
+
+                val message = "$direction$label"
+                Log.d("TTS_DEBUG", "准备把文字加入队列：$message") // 添加日志
                 Triple(
-                    "$direction$label",
+                    message,
                     direction,
                     getDirectionPriority(direction)
                 )
@@ -280,6 +285,7 @@ class DetectionProcessor {
         val context = contextMemory.compute(superRegion) { _, v -> v ?: ObjectContext() }!!
         if (shouldReport(context, superRegion)) {
             context.lastReportTime = System.currentTimeMillis()
+            Log.d("TTS_DEBUG", "生成大区域消息：$message") // 添加日志
             messageQueueManager.enqueueMessage(
                 message = message,
                 direction = superRegion,

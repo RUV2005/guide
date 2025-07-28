@@ -53,18 +53,21 @@ class MessageQueueManager {
     private var lastProcessTime = System.currentTimeMillis()
 
     init {
-        // 每2秒检查队列状态
+        // 每 500 ms 检查队列状态
         queueSizeMonitor.scheduleWithFixedDelay({
             val currentTime = System.currentTimeMillis()
             val staleness = currentTime - lastProcessTime
 
             queueLock.withLock {
-                // 当队列积压且超过1秒未处理时强制触发
-                if (speechQueue.size > 5 && staleness > 1000) {
-                    processNextInQueue(TTSManager.getInstance(context), VibrationManager.getInstance(context))
+                // 当队列积压且超过 500 ms 未处理时强制触发
+                if (speechQueue.size > 1 && staleness > 500) {
+                    processNextInQueue(
+                        TTSManager.getInstance(context),
+                        VibrationManager.getInstance(context)
+                    )
                 }
 
-                // 丢弃过时消息 (超过3秒未处理)
+                // 丢弃过时消息（超过 3 秒未处理且非关键）
                 if (speechQueue.isNotEmpty()) {
                     val now = System.currentTimeMillis()
                     val iterator = speechQueue.iterator()
@@ -77,7 +80,7 @@ class MessageQueueManager {
                     }
                 }
             }
-        }, 2, 2, TimeUnit.SECONDS)
+        }, 0, 500, TimeUnit.MILLISECONDS)
     }
 
     /**
@@ -163,12 +166,13 @@ class MessageQueueManager {
         label: String,
         vibrationPattern: LongArray? = null
     ) {
+        Log.d("TTS_DEBUG", "加入队列：$message") // 添加日志
         // 生成消息唯一键
         val messageKey = "${label}_${direction}_${message.hashCode()}"
         // 设置消息抑制时长（根据优先级）
         val suppressDuration = when (priority) {
-            MsgPriority.CRITICAL -> 2000  // 紧急消息2秒内不重复
-            MsgPriority.HIGH -> 1500       // 高优先级1.5秒
+            MsgPriority.CRITICAL -> 0  // 紧急消息2秒内不重复
+            MsgPriority.HIGH -> 500       // 高优先级1.5秒
             MsgPriority.NORMAL -> 1000    // 普通优先级1秒
         }
 
@@ -245,6 +249,7 @@ class MessageQueueManager {
 
             speechQueue.poll()?.let { item ->
                 currentSpeechId = item.id
+                Log.d("TTS_DEBUG", "处理队列中的消息：${item.text}") // 添加日志
                 executor.submit {
                     try {
                         // 缩短小米设备延迟
@@ -276,6 +281,7 @@ class MessageQueueManager {
         vibrationManager: VibrationManager
     ) {
         try {
+            Log.d("TTS_DEBUG", "即将播报文字：${item.text}")
             // 执行振动反馈
             item.vibrationPattern?.let { pattern ->
                 vibrationManager.vibrate(pattern)
