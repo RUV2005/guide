@@ -25,6 +25,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.danmo.guide.BuildConfig
 import com.danmo.guide.R
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.gson.Gson
@@ -46,7 +47,7 @@ class ReadOnlineActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val tag = "OCR_DEMO"
 
     // 凭证信息
-    private val apiKey = "1d68a7b7f999dbdd55c2de07204f982e"
+    private val apiKey = BuildConfig.OCR_API_KEY
     private val apiSecret = "YzVlMjcxMGNhMWQ5YzExMTBlOGY0OTdj"
     private val appId = "0a6d43e9"
     private val host = "api.xf-yun.com"

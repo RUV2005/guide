@@ -5,6 +5,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.danmo.guide.BuildConfig
 import com.volcengine.ark.runtime.model.completion.chat.*
 import com.volcengine.ark.runtime.service.ArkService
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +35,7 @@ class ArkViewModel : ViewModel() {
 
     private fun createArkService(): ArkService {
         // 实际项目中应从安全源获取
-        val apiKey = "7406a191-85c0-47de-a74a-3247cfd4c885"
+        val apiKey = BuildConfig.ARK_API_KEY
 
         return ArkService.builder()
             .dispatcher(Dispatcher().apply {
