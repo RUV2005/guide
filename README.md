@@ -1,5 +1,5 @@
-# Guide - Intelligent Navigation Assistant
-An AI-powered assistive application leveraging computer vision to provide real-time obstacle detection and multimodal feedback for visually impaired users and those needing enhanced environmental awareness.
+# Guide - TensorFlow Lite Navigation Assistant
+AI-powered navigation assistant using TensorFlow Lite for real-time object detection, multimodal feedback, and enhanced environmental awareness on Android devices.
 ## Key Features
 - **Real-Time Perception**
   - 80+ object detection with TensorFlow Lite (EfficientDet-Lite0 model)
@@ -23,10 +23,6 @@ An AI-powered assistive application leveraging computer vision to provide real-t
   - `ObjectDetectorHelper`: TFLite inference engine
   - `FeedbackManager`: Multimodal feedback system
   - `OverlayView`: Detection visualization
-- **Device Integration**
-  - Light sensor-driven auto-flash
-  - Cross-vendor TTS engine support
-  - Multi-type vibration motor handling
 ## Getting Started
 ### Requirements
 - Android 9.0+ (API 24+)
