@@ -33,13 +33,15 @@ object VoskRecognizerManager {
 
         val modelDir = File(context.filesDir, MODEL_DIR_NAME)
         val readyFile = File(modelDir, ".ready")
-
         if (readyFile.exists()) return@withContext loadModel(modelDir.absolutePath)
 
-        val (url, etag) = fetchSignedUrl() ?: run {
-            Log.e("VOSK", "无法获取签名 URL 或 ETag")
-            return@withContext false
-        }
+        /* ↓↓↓ 新增：兜底 try-catch ↓↓↓ */
+        val (url, etag) = try {
+            fetchSignedUrl()
+        } catch (e: Exception) {
+            Log.e("VOSK", "网络不可用，跳过下载", e)
+            null
+        } ?: return@withContext false   // 网络失败直接返回 false，不抛异常
 
         val tmpZip = File(context.filesDir, "model.zip")
         try {
@@ -52,7 +54,7 @@ object VoskRecognizerManager {
             readyFile.createNewFile()
             tmpZip.delete()
         } catch (e: Exception) {
-            Log.e("VOSK", "模型下载或解压异常", e)
+            Log.e("VOSK", "下载或解压异常", e)
             return@withContext false
         }
         return@withContext loadModel(modelDir.absolutePath)

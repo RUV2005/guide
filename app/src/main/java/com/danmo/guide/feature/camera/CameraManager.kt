@@ -96,14 +96,24 @@ class CameraManager(
 
     fun isShutdown(): Boolean = isShutdown
 
+    /** ★ 新增：运行时动态修改帧率 */
+    fun setTargetFps(fps: Int) {
+        val throttled = analyzer as? ThrottledAnalyzer ?: return
+        throttled.targetFps = fps.coerceIn(1, 15)
+        Log.d("CameraManager", "帧率已设为 $fps fps")
+    }
+
     /**
      * 帧率节流器
      */
     private class ThrottledAnalyzer(
         private val delegate: ImageAnalysis.Analyzer,
-        targetFps: Int
+        var targetFps: Int
     ) : ImageAnalysis.Analyzer {
-        private val intervalNs = TimeUnit.SECONDS.toNanos(1) / targetFps
+
+        private val intervalNs: Long
+            get() = TimeUnit.SECONDS.toNanos(1) / targetFps
+
         private var lastFrameNs = 0L
 
         override fun analyze(imageProxy: ImageProxy) {

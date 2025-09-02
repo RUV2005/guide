@@ -1,114 +1,82 @@
 package com.danmo.guide.ui.settings
-import android.annotation.SuppressLint
+
 import android.content.SharedPreferences
 import android.os.Bundle
-import android.util.Log
-import android.view.View
+import androidx.preference.ListPreference
+import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
-import com.danmo.guide.R
-import com.danmo.guide.feature.feedback.FeedbackManager
+import androidx.preference.PreferenceScreen
+import androidx.preference.SeekBarPreference
+import androidx.preference.SwitchPreferenceCompat
+
 class SettingsFragment : PreferenceFragmentCompat(),
     SharedPreferences.OnSharedPreferenceChangeListener {
-    private var feedbackManager: FeedbackManager? = null
+
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-        try {
-            setPreferencesFromResource(R.xml.preferences, rootKey)
-            context?.let { ctx ->
-                feedbackManager = FeedbackManager.getInstance(ctx)
-            }
-        } catch (e: Exception) {
-            Log.e("SettingsFragment", "初始化设置失败", e)
-        }
+        preferenceScreen = buildPreferenceScreen()
     }
+
+    private fun buildPreferenceScreen(): PreferenceScreen {
+        val ctx = preferenceManager.context
+        val screen = preferenceManager.createPreferenceScreen(ctx)
+
+        SettingsSchema.items.forEach { meta ->
+            val pref: Preference = when {
+                // Switch
+                meta.default is Boolean -> SwitchPreferenceCompat(ctx).apply {
+                    key = meta.key
+                    title = meta.title
+                    setDefaultValue(meta.default)
+                }
+                // List
+                meta.entries != null && meta.entryValues != null -> ListPreference(ctx).apply {
+                    key = meta.key
+                    title = meta.title
+                    summary = meta.summary
+                    entries = meta.entries.toTypedArray()
+                    entryValues = meta.entryValues.toTypedArray()
+                    setDefaultValue(meta.default)
+                }
+                // SeekBar
+                meta.min != null && meta.max != null -> SeekBarPreference(ctx).apply {
+                    key = meta.key
+                    title = meta.title
+                    min = meta.min
+                    max = meta.max
+                    setDefaultValue(meta.default)
+                    showSeekBarValue = true
+                }
+                else -> throw IllegalStateException("Unknown pref type for ${meta.key}")
+            }
+            screen.addPreference(pref)
+        }
+
+        return screen
+    }
+
     override fun onResume() {
         super.onResume()
-        try {
-            preferenceManager.sharedPreferences?.registerOnSharedPreferenceChangeListener(this)
-        } catch (e: Exception) {
-            Log.e("SettingsFragment", "注册设置监听器失败", e)
-        }
+        preferenceManager.sharedPreferences
+            ?.registerOnSharedPreferenceChangeListener(this)
     }
+
     override fun onPause() {
         super.onPause()
-        try {
-            preferenceManager.sharedPreferences?.unregisterOnSharedPreferenceChangeListener(this)
-        } catch (e: Exception) {
-            Log.e("SettingsFragment", "注销设置监听器失败", e)
-        }
+        preferenceManager.sharedPreferences
+            ?.unregisterOnSharedPreferenceChangeListener(this)
     }
-    @SuppressLint("RestrictedApi")
-    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
-        if (sharedPreferences == null || key == null) return
-        try {
-            when (key) {
-                "speech_enabled" -> {
-                    val enabled = sharedPreferences.getBoolean(key, true)
-                    feedbackManager?.let { manager ->
-                        FeedbackManager.speechEnabled = enabled
-                        if (!enabled) {
-                            manager.clearQueue()
-                        }
-                    }
-                    // 通知读屏器设置已变更
-                    activity?.findViewById<View>(android.R.id.content)?.announceForAccessibility(
-                        "语音功能已${if (enabled) "启用" else "禁用"}"
-                    )
-                }
-                "speech_language" -> {
-                    val lang = sharedPreferences.getString(key, "zh") ?: "zh"
-                    feedbackManager?.let { manager ->
-                        manager.updateLanguage(lang)
-                        manager.clearQueue()
-                    }
-                    // 通知读屏器设置已变更
-                    activity?.findViewById<View>(android.R.id.content)?.announceForAccessibility(
-                        "语音语言已更改为${lang}"
-                    )
-                }
-                "speech_rate" -> {
-                    val rawValue = sharedPreferences.getInt(key, 12)
-                    val rate = (rawValue / 10f).coerceIn(0.5f, 2.0f)
-                    FeedbackManager.speechRate = rate
-                    // 通知读屏器设置已变更
-                    activity?.findViewById<View>(android.R.id.content)?.announceForAccessibility(
-                        "语音语速已更改为${rate}"
-                    )
-                }
-                "danger_sensitivity" -> {
-                    val level = sharedPreferences.getString(key, "medium") ?: "medium"
-                    updateSensitivity(level)
-                    // 通知读屏器设置已变更
-                    activity?.findViewById<View>(android.R.id.content)?.announceForAccessibility(
-                        "危险灵敏度已更改为${level}"
-                    )
-                }
-                "vibration_enabled" -> {
-                    val enabled = sharedPreferences.getBoolean(key, true)
-                    // TODO: 实现振动设置
-                    // 通知读屏器设置已变更
-                    activity?.findViewById<View>(android.R.id.content)?.announceForAccessibility(
-                        "振动功能已${if (enabled) "启用" else "禁用"}"
-                    )
-                }
-                "batch_processing" -> {
-                    val enabled = sharedPreferences.getBoolean(key, true)
-                    // TODO: 实现批处理设置
-                    // 通知读屏器设置已变更
-                    activity?.findViewById<View>(android.R.id.content)?.announceForAccessibility(
-                        "批处理功能已${if (enabled) "启用" else "禁用"}"
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("SettingsFragment", "处理设置变更失败: $key", e)
+
+    override fun onSharedPreferenceChanged(sp: SharedPreferences, key: String?) {
+        key ?: return
+        val view = view ?: return
+        val meta = SettingsSchema.items.firstOrNull { it.key == key } ?: return
+
+        val announcement = when (meta.default) {
+            is Boolean -> "${meta.title}已${if (sp.getBoolean(key, true)) "启用" else "禁用"}"
+            is String -> "${meta.title}已更改为 ${sp.getString(key, "")}"
+            is Int -> "${meta.title}已更改为 ${sp.getInt(key, 12) / 10f}"
+            else -> ""
         }
-    }
-    private fun updateSensitivity(level: String) {
-        FeedbackManager.confidenceThreshold = when (level) {
-            "high" -> 0.3f
-            "medium" -> 0.4f
-            "low" -> 0.5f
-            else -> 0.4f
-        }
+        view.announceForAccessibility(announcement)
     }
 }

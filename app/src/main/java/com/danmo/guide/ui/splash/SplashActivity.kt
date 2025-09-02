@@ -58,19 +58,18 @@ class SplashActivity : AppCompatActivity() {
     }
 
     private suspend fun doHeavyInit() = withContext(Dispatchers.IO) {
-        AMapLocationClient.updatePrivacyShow(this@SplashActivity, true, true)
-        AMapLocationClient.updatePrivacyAgree(this@SplashActivity, true)
-
-        // 并发初始化，但不取消 Vosk
+        // 并发初始化
         val detectorJob = async { ObjectDetectorHelper.preload(this@SplashActivity) }
         val locationJob = async { LocationManager.instance?.preloadCached(this@SplashActivity) }
-        val voskJob = async {
+
+        // Vosk 只在后台启动，不阻塞
+        async {
             val ok = VoskRecognizerManager.initWithDownload(this@SplashActivity)
             InitManager.voskReady = ok
-            Log.d("SplashActivity", "Vosk 初始化结果: $ok")
+            Log.d("SplashActivity", "Vosk 结果: $ok")
         }
 
-        // 只等待 detector 和 location，Vosk 允许后台完成
+        // 只等待 detector 和 location
         awaitAll(detectorJob, locationJob)
     }
 

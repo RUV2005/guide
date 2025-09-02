@@ -3,20 +3,17 @@ package com.danmo.guide.ui.main
     import android.Manifest
     import android.annotation.SuppressLint
     import android.app.AlertDialog
-    import android.content.BroadcastReceiver
     import android.content.ComponentName
-    import android.content.Context
     import android.content.Intent
-    import android.content.IntentFilter
     import android.content.ServiceConnection
     import android.content.pm.PackageManager
+    import android.graphics.Bitmap
     import android.graphics.BitmapFactory
     import android.hardware.Sensor
     import android.hardware.SensorEvent
     import android.hardware.SensorEventListener
     import android.hardware.SensorManager
     import android.net.Uri
-    import android.os.BatteryManager
     import android.os.Build
     import android.os.Bundle
     import android.os.Handler
@@ -49,6 +46,7 @@ package com.danmo.guide.ui.main
     import com.danmo.guide.feature.init.InitManager
     import com.danmo.guide.feature.location.LocationManager
     import com.danmo.guide.feature.performancemonitor.PerformanceMonitor
+    import com.danmo.guide.feature.performancemonitor.PowerGovernor
     import com.danmo.guide.feature.powermode.PowerMode
     import com.danmo.guide.feature.vosk.VoskRecognizerManager
     import com.danmo.guide.feature.weather.WeatherManager
@@ -98,6 +96,7 @@ package com.danmo.guide.ui.main
         private val maxRetries = 5
         private val perfMonitor by lazy { PerformanceMonitor(this) }
         private var lastFrameNanos = 0L
+        private var reusableBitmap: Bitmap? = null
 
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
@@ -154,6 +153,9 @@ package com.danmo.guide.ui.main
         private val movementThreshold = 2.5 // 移动检测阈值（m/s²）
         private val movementWindow = 5L // 移动判断时间窗口（5秒）
         private var isRecognitionStarting = false   // 防止重复点击
+        private var latestMetrics: PerformanceMonitor.Metrics? = null
+        // 当前正在执行的检测任务，null 表示空闲
+        private var currentDetectJob: Job? = null
 
 
         // 添加延迟播报处理器
@@ -267,11 +269,6 @@ package com.danmo.guide.ui.main
             AMapLocationClient.updatePrivacyShow(this, true, true)
             AMapLocationClient.updatePrivacyAgree(this, true)
 
-            // 3. 注册广播（不变）
-            registerReceiver(
-                batteryReceiver,
-                IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-            )
 
             // 4. 直接使用 Splash 预加载好的资源
             cameraExecutor = Executors.newSingleThreadExecutor()
@@ -331,14 +328,34 @@ package com.danmo.guide.ui.main
 
 
             // 启动监控并把结果贴到底部状态栏
+// ★ 找到原来的 perfMonitor.start {...} 并替换
+            // ★ 显式写出参数类型
             perfMonitor.start(object : PerformanceMonitor.Callback {
-                override fun onMetrics(m: PerformanceMonitor.Metrics) {
-                    binding.tvFps.text        = "FPS:${m.fps}"
-                    binding.tvCpu.text        = "CPU:${m.cpuApp}%"
-                    binding.tvMem.text        = "MEM:当前:${m.memUsedMB}/极限:${m.memMaxMB}MB"
-                    binding.tvTemp.text       = "BAT:${m.batteryTemp}°C"
-                    binding.tvInference.text  = "AI推理延迟:${m.tfliteMs}ms"
-                    binding.tvGpu.text        = "GPU渲染时长:${m.gpuFrameMs}ms"
+                override fun onMetrics(metrics: PerformanceMonitor.Metrics) {
+                    latestMetrics = metrics   // ★ 用变量名 latestMetrics
+                    // 1. 更新 UI
+                    binding.tvFps.text   = "FPS:${metrics.fps}"
+                    binding.tvCpu.text   = "CPU:${metrics.cpuApp}%"
+                    binding.tvMem.text   = "MEM:当前:${metrics.memUsedMB}/极限:${metrics.memMaxMB}MB"
+                    binding.tvTemp.text  = "BAT:${metrics.batteryTemp}°C"
+                    binding.tvInference.text = "AI推理延迟:${metrics.tfliteMs}ms"
+                    binding.tvGpu.text   = "GPU渲染时长:${metrics.gpuFrameMs}ms"
+
+                    // 2. 动态功耗决策
+                    val newMode = PowerGovernor.evaluate(metrics.powerContext)
+                    if (newMode != PowerGovernor.currentMode) {
+                        PowerGovernor.currentMode = newMode
+                        objectDetectorHelper.setPowerMode(newMode)
+
+                        val fps = when (newMode) {
+                            PowerMode.LOW_POWER    -> 2
+                            PowerMode.BALANCED     -> 6
+                            PowerMode.HIGH_ACCURACY-> 12
+                        }
+                        if (::cameraManager.isInitialized) {
+                            cameraManager.setTargetFps(fps)
+                        }
+                    }
                 }
             })
 
@@ -501,19 +518,6 @@ package com.danmo.guide.ui.main
                     }
                 }
             }
-
-        // 1. 电池温度回调里设置电源模式
-        private val batteryReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                val temperature = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10f
-                val newMode = when {
-                    temperature < 36f -> PowerMode.HIGH_ACCURACY
-                    temperature < 38f -> PowerMode.BALANCED
-                    else -> PowerMode.LOW_POWER
-                }
-                objectDetectorHelper.setPowerMode(newMode)
-            }
-        }
 
         private fun initFallDetection() {
             sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
@@ -878,7 +882,8 @@ package com.danmo.guide.ui.main
 
 
         override fun onDestroy() {
-
+            reusableBitmap?.recycle()
+            reusableBitmap = null
             // 统一释放资源
             releaseCameraResources()
 
@@ -1096,9 +1101,12 @@ package com.danmo.guide.ui.main
 
         // 启动视频流
         // 1. 启动流（保持不变）
+        // 1. 启动流（已改为始终在 IO 线程执行）
         private fun startStream() {
             if (isStreaming || isCameraMode) return
             isStreaming = true
+
+            perfMonitor.reset() // 重置性能计数器
 
             streamingJob = lifecycleScope.launch(Dispatchers.IO) {
                 var retryCount = 0
@@ -1124,7 +1132,7 @@ package com.danmo.guide.ui.main
                         Log.e(tag, "Stream error: ${e.message}")
                         if (++retryCount > maxRetries) {
                             updateConnectionState(ConnectionState.DISCONNECTED)
-                            showToast("Max retries reached")
+                            showToast("重连次数已达上限，停止尝试")
                             isStreaming = false
                             return@launch
                         }
@@ -1137,7 +1145,8 @@ package com.danmo.guide.ui.main
             }
         }
 
-        // 2. 解析 MJPEG（后台线程）
+
+    // 2. 解析 MJPEG（后台线程）
         private fun parseMjpegStreamOptimized(stream: InputStream) {
             val videoStreamTrace = Firebase.performance.newTrace("video_stream_parsing")
             videoStreamTrace.start()
@@ -1182,40 +1191,57 @@ package com.danmo.guide.ui.main
             }
         }
 
-        // 4. 解码 + 渲染（后台线程 → 主线程）
-        private fun renderFrame(imgData: ByteArray) {
-            renderHandler.post {
-                PerformanceMonitor.FrameStats.addFrame()
-                Log.d("FPS", "addFrame called in renderFrame")
-                val bmp = BitmapFactory.decodeByteArray(imgData, 0, imgData.size) ?: return@post
-                DetectionProcessor.getInstance(this@MainActivity)
-                    .updateImageDimensions(bmp.width, bmp.height)
+    // ================== 外置摄像头：renderFrame() 完整实现 ==================
 
-                lifecycleScope.launch(Dispatchers.IO) {
-                    // ========= 记录 TFLite 耗时 =========
-                    val t0 = SystemClock.elapsedRealtime()
-                    val results = withContext(objectDetectorHelper.getGpuThread()) {
-                        objectDetectorHelper.detect(bmp, 0)
-                    }
-                    perfMonitor.recordTflite(SystemClock.elapsedRealtime() - t0)
-                    // ===================================
 
-                    withContext(Dispatchers.Main) {
-                        overlayView.setModelInputSize(bmp.width, bmp.height)
-                        updateOverlayView(results, 0)
-                        handleDetectionResults(results)
-                        updateStatusUI(results)
-                    }
+    @SuppressLint("UnsafeOptInUsageError")
+    private fun renderFrame(imgData: ByteArray) {
+        renderHandler.post {
+            /* 1. 帧计数器清零 */
+            perfMonitor.resetFrameCounters()
+
+            /* 2. 解码 Bitmap（省略复用代码） */
+            val bmp = BitmapFactory.decodeByteArray(imgData, 0, imgData.size) ?: return@post
+            runOnUiThread { binding.streamView.setImageBitmap(bmp) }
+
+            /* 3. 限流：如果上一轮还在跑直接丢弃 */
+            if (currentDetectJob?.isActive == true) return@post
+
+            /* 4. 清空上一轮推理窗口 */
+            perfMonitor.clearTfliteWindow()
+
+            /* 5. 启动唯一检测协程 */
+            DetectionProcessor.getInstance(this@MainActivity)
+                .updateImageDimensions(bmp.width, bmp.height)
+
+            currentDetectJob = lifecycleScope.launch(Dispatchers.IO) {
+                val t0 = SystemClock.elapsedRealtime()
+                val results = withContext(objectDetectorHelper.getGpuThread()) {
+                    objectDetectorHelper.detect(bmp, 0)
+                }
+                val tfliteCost = SystemClock.elapsedRealtime() - t0
+
+                /* 5-1 立即记录，不经过 Handler 队列 */
+                perfMonitor.recordTfliteNow(tfliteCost)
+
+                /* 5-2 主线程更新 UI */
+                withContext(Dispatchers.Main) {
+                    overlayView.setModelInputSize(bmp.width, bmp.height)
+                    updateOverlayView(results, 0)
+                    handleDetectionResults(results)
+                    updateStatusUI(results)
                 }
             }
         }
-
+    }
 
         // 停止视频流
         private fun stopStream() {
             isStreaming = false
             streamingJob?.cancel()
             updateConnectionState(ConnectionState.DISCONNECTED)
+
+            perfMonitor.reset() // 重置性能计数器
         }
 
         // 查找边界
@@ -1275,33 +1301,30 @@ package com.danmo.guide.ui.main
         // 切换摄像头模式
     // 修改 switchCameraMode 方法
         private fun switchCameraMode() {
-            runOnUiThread {
+            lifecycleScope.launch(Dispatchers.Main) {        // ← 统一在主线程
                 if (isCameraMode) {
-                    // 切换到外置摄像头模式
+                    // 1. 切换到外置
                     binding.previewView.visibility = View.GONE
-                    binding.streamView.visibility = View.VISIBLE
-                    binding.timerText.visibility = View.VISIBLE
+                    binding.streamView.visibility  = View.VISIBLE
+                    binding.timerText.visibility   = View.VISIBLE
 
-                    // 释放内置摄像头资源
                     releaseCameraResources()
-
-                    // 启动视频流
-                    startStream()
                     isCameraMode = false
+                    startStream()
 
                     ttsService?.speak("已切换到外置摄像头模式")
                 } else {
-                    // 切换回内置摄像头
+                    // 2. 切换回内置
                     binding.previewView.visibility = View.VISIBLE
-                    binding.streamView.visibility = View.GONE
-                    binding.timerText.visibility = View.GONE
-                    stopStream()
+                    binding.streamView.visibility  = View.GONE
+                    binding.timerText.visibility   = View.GONE
 
-                    // 重新初始化内置摄像头资源
+                    // 切换回内置
+                    stopStream()
+                    perfMonitor.reset() // ← 新增：切内置时也清零
                     initCameraResources()
                     checkCameraPermission()
                     isCameraMode = true
-
                     ttsService?.speak("已切换到内置摄像头模式")
                 }
             }
