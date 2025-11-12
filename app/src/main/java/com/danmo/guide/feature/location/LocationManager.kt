@@ -273,10 +273,14 @@ class LocationManager private constructor() : AMapLocationListener {
         trace.start()
         if (cachedLocation != null) return@withContext cachedLocation
 
+        // 1. 先合规，再 new AMapLocationClient
+        AMapLocationClient.updatePrivacyShow(context, true, true)
+        AMapLocationClient.updatePrivacyAgree(context, true)
+
         val client = AMapLocationClient(context)
         val option = AMapLocationClientOption().apply {
-            isOnceLocation = true          // 只要一次
-            isLocationCacheEnable = true   // 允许返回缓存
+            isOnceLocation = true
+            isLocationCacheEnable = true
         }
         client.setLocationOption(option)
 

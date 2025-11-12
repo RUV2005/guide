@@ -20,7 +20,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.danmo.guide.databinding.ActivityArkBinding
-import com.danmo.guide.feature.room.ArkViewModel
+import com.danmo.guide.ui.room.ArkViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

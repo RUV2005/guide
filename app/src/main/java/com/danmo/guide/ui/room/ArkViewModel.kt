@@ -1,4 +1,4 @@
-package com.danmo.guide.feature.room
+package com.danmo.guide.ui.room
 
 import android.util.Log
 import androidx.lifecycle.LiveData

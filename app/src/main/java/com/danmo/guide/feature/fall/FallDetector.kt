@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.net.toUri
 import com.amap.api.location.AMapLocation
+import com.danmo.guide.core.service.TtsService
 import com.danmo.guide.feature.location.LocationManager
 import com.danmo.guide.ui.main.MainActivity
 import kotlin.math.*
@@ -225,9 +226,9 @@ class FallDetector(
             val intent = Intent(Intent.ACTION_CALL, "tel:$sosNumber".toUri())
             context.startActivity(intent)
         } else {
-            if (context is MainActivity) context.requestPhonePermissions.launch(
-                arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE)
-            )
+            // 权限未授予，通过回调通知外部处理
+            // 注意：权限请求应该由 MainActivity 的 PermissionManager 处理
+            Log.w("FallDetector", "电话权限未授予，无法进行紧急呼叫")
         }
     }
 
