@@ -13,7 +13,7 @@ plugins {
 }
 
 def localProps = new Properties()
-file('../local.properties').withInputStream { localProps.load(it) }
+file('./local.properties').withInputStream { localProps.load(it) }
 def arkApiKey       = localProps.getProperty('ARK_API_KEY', '')
 def openWeatherKey  = localProps.getProperty('OPENWEATHER_API_KEY', '')
 def ipDataKey       = localProps.getProperty('IPDATA_API_KEY', '')

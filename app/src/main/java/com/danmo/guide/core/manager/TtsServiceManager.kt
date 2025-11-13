@@ -33,19 +33,28 @@ class TtsServiceManager(
 
     private val ttsConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as TtsService.TtsBinder
-            ttsService = binder.getService()
-            Log.d("TtsServiceManager", "TTS服务已连接")
-            fallDetector.ttsService = ttsService
+            Log.d("TtsServiceManager", "onServiceConnected 回调触发，service: $service")
+            if (service == null) {
+                Log.e("TtsServiceManager", "服务连接失败：service 为 null")
+                return
+            }
+            try {
+                val binder = service as TtsService.TtsBinder
+                ttsService = binder.getService()
+                Log.d("TtsServiceManager", "TTS服务已连接，ttsService: $ttsService")
+                fallDetector.ttsService = ttsService
 
-            // 确保在服务连接后播报
-            ensureOutdoorModeAnnouncement()
+                // 确保在服务连接后播报
+                ensureOutdoorModeAnnouncement()
 
-            // 服务连接后处理可能存在的队列
-            ttsService?.processNextInQueue()
+                // 服务连接后处理可能存在的队列
+                ttsService?.processNextInQueue()
 
-            // 通知外部服务已连接
-            ttsService?.let { onServiceConnected(it) }
+                // 通知外部服务已连接
+                ttsService?.let { onServiceConnected(it) }
+            } catch (e: Exception) {
+                Log.e("TtsServiceManager", "服务连接异常", e)
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -59,8 +68,9 @@ class TtsServiceManager(
      */
     fun bindService() {
         Intent(context, TtsService::class.java).also { intent ->
-            context.bindService(intent, ttsConnection, Context.BIND_AUTO_CREATE)
+            val result = context.bindService(intent, ttsConnection, Context.BIND_AUTO_CREATE)
             isTtsBound = true
+            Log.d("TtsServiceManager", "开始绑定TTS服务，结果: $result")
         }
     }
 
@@ -87,7 +97,7 @@ class TtsServiceManager(
      */
     private fun announceOutdoorMode() {
         if (!hasOutdoorModeAnnounced && isTtsBound && ttsService != null) {
-            ttsService?.speak("当前为户外模式", true)
+            ttsService?.speakImmediate("当前为户外模式", true)
             hasOutdoorModeAnnounced = true
             Log.d("TtsServiceManager", "户外模式播报完成")
         }

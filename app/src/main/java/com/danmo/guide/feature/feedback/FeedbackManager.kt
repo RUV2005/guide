@@ -1,11 +1,13 @@
 package com.danmo.guide.feature.feedback
 import android.annotation.SuppressLint
 import android.content.Context
+import com.danmo.guide.core.service.TtsService
 import org.tensorflow.lite.task.vision.detector.Detection
 class FeedbackManager(context: Context) {
-    private val ttsManager = TTSManager.getInstance(context)
+    private var ttsService: TtsService? = null
     private val messageQueueManager = MessageQueueManager.getInstance(context.applicationContext)
     private val detectionProcessor = DetectionProcessor.getInstance(context.applicationContext)
+    
     companion object {
         @SuppressLint("StaticFieldLeak")
         @Volatile
@@ -19,13 +21,13 @@ class FeedbackManager(context: Context) {
             get() = _speechEnabled
             set(value) {
                 _speechEnabled = value
-                TTSManager.getInstance(context).setSpeechEnabled(value)
+                instance?.ttsService?.setSpeechEnabled(value)
             }
         var speechRate: Float
             get() = _speechRate
             set(value) {
                 _speechRate = value
-                TTSManager.getInstance(context).setSpeechRate(value)
+                instance?.ttsService?.setSpeechRate(value)
             }
         var confidenceThreshold: Float
             get() = _confidenceThreshold
@@ -40,16 +42,29 @@ class FeedbackManager(context: Context) {
             }
         }
     }
+    
+    /**
+     * 设置 TTS 服务（由 MainActivity 在服务连接后调用）
+     */
+    fun setTtsService(ttsService: TtsService?) {
+        this.ttsService = ttsService
+        messageQueueManager.setTtsService(ttsService)
+        // 应用已保存的设置
+        ttsService?.setSpeechEnabled(_speechEnabled)
+        ttsService?.setSpeechRate(_speechRate)
+    }
+    
     fun handleDetectionResult(result: Detection) {
         detectionProcessor.handleDetectionResult(result)
     }
+    
     fun updateLanguage(languageCode: String) {
-        ttsManager.updateLanguage(languageCode)
+        ttsService?.updateLanguage(languageCode)
         messageQueueManager.clearQueue()
     }
 
     fun clearQueue() {
         messageQueueManager.clearQueue()
-        ttsManager.stop()
+        ttsService?.setSpeechEnabled(false) // 停止播报
     }
 }

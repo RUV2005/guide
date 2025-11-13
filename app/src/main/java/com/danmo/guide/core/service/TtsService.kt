@@ -19,7 +19,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
-    private val speechQueue = LinkedBlockingQueue<Pair<String, Boolean>>()
+    private val speechQueue = LinkedBlockingQueue<Pair<String, Pair<Boolean, String?>>>()
     private var currentUtteranceId: String? = null
 
     inner class TtsBinder : Binder() {
@@ -85,27 +85,95 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         })
     }
 
-    fun speak(text: String, immediate: Boolean = false) {
+    /**
+     * 播报文本（兼容 TTSManager 接口）
+     * @param text 要播报的文本
+     * @param utteranceId 可选的播报ID，用于回调识别
+     */
+    fun speak(text: String, utteranceId: String? = null) {
+        if (!isTtsReady) {
+            Log.w("TtsService", "TTS未就绪，无法播报: $text")
+            return
+        }
+        
+        if (text.isBlank()) {
+            Log.d("TTS_DEBUG", "TTS 尝试播报空文本")
+            return
+        }
+
+        val id = utteranceId ?: UUID.randomUUID().toString()
+        speechQueue.add(Pair(text, Pair(false, id)))
+        if (currentUtteranceId == null) {
+            processNextInQueue()
+        }
+    }
+    
+    /**
+     * 立即播报文本（清除队列）
+     * @param text 要播报的文本
+     * @param immediate 是否立即播报（清除队列）
+     */
+    fun speakImmediate(text: String, immediate: Boolean = false) {
         if (!isTtsReady) return
 
         if (immediate) {
             speechQueue.clear()
             tts.stop()
-            speechQueue.add(Pair(text, true))
+            val utteranceId = UUID.randomUUID().toString()
+            speechQueue.add(Pair(text, Pair(true, utteranceId)))
             processNextInQueue()
         } else {
-            speechQueue.add(Pair(text, false))
-            if (currentUtteranceId == null) {
-                processNextInQueue()
+            speak(text)
+        }
+    }
+    
+    /**
+     * 设置语速
+     */
+    fun setSpeechRate(rate: Float) {
+        val clampedRate = rate.coerceIn(0.5f, 3.0f)
+        if (::tts.isInitialized) {
+            tts.setSpeechRate(clampedRate)
+        }
+    }
+    
+    /**
+     * 设置语音启用状态
+     */
+    fun setSpeechEnabled(enabled: Boolean) {
+        if (!enabled && ::tts.isInitialized) {
+            tts.stop()
+            speechQueue.clear()
+        }
+    }
+    
+    /**
+     * 更新语言
+     */
+    fun updateLanguage(languageCode: String) {
+        if (::tts.isInitialized) {
+            val result = tts.setLanguage(Locale(languageCode))
+            when (result) {
+                TextToSpeech.LANG_AVAILABLE,
+                TextToSpeech.LANG_COUNTRY_AVAILABLE,
+                TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> {
+                    Log.d("TtsService", "语言切换成功: $languageCode")
+                }
+                else -> {
+                    Log.e("TtsService", "语言切换失败: $languageCode")
+                }
             }
         }
     }
 
     fun processNextInQueue() {
         if (speechQueue.isEmpty() || !isTtsReady) return
-        val (nextText, _) = speechQueue.poll()!!
-        val utteranceId = UUID.randomUUID().toString()
-        tts.speak(nextText, TextToSpeech.QUEUE_ADD, null, utteranceId)
+        val (nextText, params) = speechQueue.poll()!!
+        val (isImmediate, utteranceId) = params
+        val id = utteranceId ?: UUID.randomUUID().toString()
+        val queueMode = if (isImmediate) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        Log.d("TTS_DEBUG", "TTS 尝试播报：$nextText")
+        tts.speak(nextText, queueMode, null, id)
     }
 
     override fun onDestroy() {

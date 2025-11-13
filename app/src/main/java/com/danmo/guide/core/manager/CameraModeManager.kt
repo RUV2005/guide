@@ -49,10 +49,12 @@ class CameraModeManager(
                 uiManager.switchCameraView(true)
                 onStopStream()
                 perfMonitor.reset()
+                isCameraMode = true
+                // 重新初始化摄像头资源（因为之前可能被释放了）
                 // 注意：这里需要传入 createAnalyzer，但在这个上下文中无法获取
                 // 应该在调用 switchCameraMode 之前确保摄像头已初始化
+                // 先检查权限，然后由调用者负责重新初始化摄像头
                 onCheckPermission()
-                isCameraMode = true
                 ttsService?.speak("已切换到内置摄像头模式")
             }
         }

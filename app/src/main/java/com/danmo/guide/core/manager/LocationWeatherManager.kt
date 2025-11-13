@@ -26,7 +26,7 @@ class LocationWeatherManager(
     private val lifecycleScope: LifecycleCoroutineScope,
     private val locationManager: LocationManager,
     private val weatherManager: WeatherManager,
-    private val ttsService: TtsService?,
+    private val ttsServiceManager: TtsServiceManager,
     private val uiManager: UIManager
 ) : LocationManager.LocationCallback, FallDetector.WeatherCallback {
 
@@ -41,7 +41,7 @@ class LocationWeatherManager(
     override fun onLocationSuccess(location: AMapLocation?, isWeatherButton: Boolean) {
         if (location == null) {
             uiManager.setStatusText(activity.getString(R.string.location_failed))
-            ttsService?.speak(activity.getString(R.string.location_failed))
+            ttsServiceManager.ttsService?.speak(activity.getString(R.string.location_failed))
             return
         }
 
@@ -53,7 +53,7 @@ class LocationWeatherManager(
         ).firstOrNull { it.isNotBlank() } ?: activity.getString(R.string.unknown_location)
 
         if (!isWeatherButton) {
-            ttsService?.speak(activity.getString(R.string.current_location, location.address))
+            ttsServiceManager.ttsService?.speak(activity.getString(R.string.current_location, location.address))
         } else {
             getWeatherAndAnnounce(location.latitude, location.longitude, pos)
         }
@@ -64,7 +64,7 @@ class LocationWeatherManager(
             val msg = activity.getString(R.string.location_failed) + " (错误码: $errorCode)"
             Log.e("LocationWeatherManager", msg)
             uiManager.showToast(msg)
-            ttsService?.speak(activity.getString(R.string.speak_location_error))
+            ttsServiceManager.ttsService?.speak(activity.getString(R.string.speak_location_error))
             uiManager.setStatusText(activity.getString(R.string.location_failed))
         }
     }
@@ -80,7 +80,7 @@ class LocationWeatherManager(
                 withContext(Dispatchers.Main) {
                     if (weatherData == null) {
                         uiManager.showToast("天气获取失败")
-                        ttsService?.speak("获取天气信息失败")
+                        ttsServiceManager.ttsService?.speak("获取天气信息失败")
                         return@withContext
                     }
 
@@ -91,7 +91,7 @@ class LocationWeatherManager(
                 withContext(Dispatchers.Main) {
                     Log.e("LocationWeatherManager", "获取天气失败", e)
                     uiManager.showToast("天气获取失败: ${e.message}")
-                    ttsService?.speak("天气服务异常，请稍后重试")
+                    ttsServiceManager.ttsService?.speak("天气服务异常，请稍后重试")
                 }
             } finally {
                 networkRequestTrace.stop()
@@ -101,7 +101,16 @@ class LocationWeatherManager(
 
     override fun speakWeather(message: String) {
         Log.d("LocationWeatherManager", "播报天气: $message")
-        ttsService?.speak(message)
+        val ttsService = ttsServiceManager.ttsService
+        Log.d("LocationWeatherManager", "TTS服务状态: ttsService=$ttsService")
+        if (ttsService == null) {
+            Log.w("LocationWeatherManager", "TTS服务未连接，无法播报天气。尝试等待服务连接...")
+            // 如果服务未连接，可以尝试等待一小段时间后重试
+            // 但更好的做法是确保服务在需要时已经连接
+        } else {
+            Log.d("LocationWeatherManager", "开始播报天气信息")
+            ttsService.speak(message)
+        }
     }
 }
 

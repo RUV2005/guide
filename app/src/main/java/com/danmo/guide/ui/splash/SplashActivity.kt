@@ -10,7 +10,7 @@ import androidx.lifecycle.lifecycleScope
 import com.amap.api.location.AMapLocationClient
 import com.danmo.guide.R
 import com.danmo.guide.feature.detection.ObjectDetectorHelper
-import com.danmo.guide.feature.init.InitManager
+import com.danmo.guide.core.manager.InitState
 import com.danmo.guide.feature.location.LocationManager
 import com.danmo.guide.feature.vosk.VoskRecognizerManager
 import com.danmo.guide.ui.main.MainActivity
@@ -65,7 +65,7 @@ class SplashActivity : AppCompatActivity() {
         // Vosk 只在后台启动，不阻塞
         async {
             val ok = VoskRecognizerManager.initWithDownload(this@SplashActivity)
-            InitManager.voskReady = ok
+            InitState.voskReady = ok
             Log.d("SplashActivity", "Vosk 结果: $ok")
         }
 

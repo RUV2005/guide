@@ -147,7 +147,7 @@
         </activity>
         <!-- 文本转语音服务 -->
         <service
-            android:name=".feature.fall.TtsService"
+            android:name=".core.service.TtsService"
             android:enabled="true"
             android:exported="false" />
         <provider

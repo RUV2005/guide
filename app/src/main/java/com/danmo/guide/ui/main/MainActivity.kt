@@ -131,6 +131,8 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             initializationManager.fallDetector,
             { ttsService ->
                 // TTS 服务连接后的回调
+                // 设置 FeedbackManager 使用统一的 TTS 服务
+                initializationManager.feedbackManager.setTtsService(ttsService)
             }
         )
         ttsServiceManager.bindService()
@@ -141,7 +143,7 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
             lifecycleScope,
             initializationManager.locationManager,
             initializationManager.weatherManager,
-            ttsServiceManager.ttsService,
+            ttsServiceManager,
             uiManager
         )
         initializationManager.locationManager.callback = locationWeatherManager
@@ -437,7 +439,28 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
     }
 
     private fun startCamera() {
-        cameraModeManager.startCamera(binding.previewView.surfaceProvider)
+        // 确保摄像头资源已初始化（切换回内置摄像头时可能需要重新初始化）
+        if (cameraModeManager.getCameraManager() == null || cameraModeManager.getCameraManager()?.isShutdown() == true) {
+            Log.d("Camera", "摄像头资源未初始化，重新初始化")
+            cameraModeManager.initCameraResources({ createAnalyzer() }) { manager ->
+                cameraManager = manager
+                // 摄像头初始化后，初始化传感器处理器
+                if (!::sensorHandler.isInitialized) {
+                    val sensorManager = getSystemService(android.content.Context.SENSOR_SERVICE) as android.hardware.SensorManager
+                    sensorHandler = SensorHandler(
+                        sensorManager,
+                        initializationManager.fallDetector,
+                        cameraManager,
+                        ::triggerEmergencyCall
+                    )
+                }
+                // 初始化完成后启动摄像头
+                cameraModeManager.startCamera(binding.previewView.surfaceProvider)
+            }
+        } else {
+            // 摄像头资源已存在，直接启动
+            cameraModeManager.startCamera(binding.previewView.surfaceProvider)
+        }
     }
 
     private fun createAnalyzer(): ImageAnalysis.Analyzer {

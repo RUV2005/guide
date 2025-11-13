@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.danmo.guide.core.service.TtsService
 import java.util.*
 import java.util.concurrent.*
 import java.util.concurrent.locks.ReentrantLock
@@ -29,6 +30,8 @@ class MessageQueueManager {
     private val queueLock = ReentrantLock()
     // 应用上下文
     private lateinit var context: Context
+    // TTS 服务（统一使用 TtsService）
+    private var ttsService: TtsService? = null
     // 最近消息记录（防重复）
     private val recentMessages = object : ConcurrentHashMap<String, Long>() {
         // 过期条目清理器
@@ -60,11 +63,8 @@ class MessageQueueManager {
 
             queueLock.withLock {
                 // 当队列积压且超过 500 ms 未处理时强制触发
-                if (speechQueue.size > 1 && staleness > 500) {
-                    processNextInQueue(
-                        TTSManager.getInstance(context),
-                        VibrationManager.getInstance(context)
-                    )
+                if (speechQueue.size > 1 && staleness > 500 && ttsService != null) {
+                    processNextInQueue(VibrationManager.getInstance(context))
                 }
 
                 // 丢弃过时消息（超过 3 秒未处理且非关键）
@@ -232,16 +232,24 @@ class MessageQueueManager {
             recentMessages[messageKey] = System.currentTimeMillis()
 
             // 立即触发处理
-            processNextInQueue(TTSManager.getInstance(context), VibrationManager.getInstance(context))
+            if (ttsService != null) {
+                processNextInQueue(VibrationManager.getInstance(context))
+            }
         }
+    }
+    
+    /**
+     * 设置 TTS 服务
+     */
+    fun setTtsService(ttsService: TtsService?) {
+        this.ttsService = ttsService
     }
 
     /**
      * 处理队列中的下一条消息
-     * @param ttsManager 语音管理器
      * @param vibrationManager 振动管理器
      */
-    private fun processNextInQueue(ttsManager: TTSManager, vibrationManager: VibrationManager) {
+    private fun processNextInQueue(vibrationManager: VibrationManager) {
         queueLock.withLock {
             lastProcessTime = System.currentTimeMillis()  // 更新处理时间
 
@@ -255,19 +263,30 @@ class MessageQueueManager {
                         // 缩短小米设备延迟
                         val delay = if (Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)) 100L else 0L
 
+                        val tts = ttsService
+                        if (tts == null) {
+                            Log.w("MessageQueue", "TTS服务未连接，跳过消息")
+                            queueLock.withLock {
+                                currentSpeechId = null
+                            }
+                            return@submit
+                        }
+                        
                         if (delay > 0) {
                             mainHandler.postDelayed({
-                                processItem(item, ttsManager, vibrationManager)
+                                processItem(item, tts, vibrationManager)
                             }, delay)
                         } else {
-                            processItem(item, ttsManager, vibrationManager)
+                            processItem(item, tts, vibrationManager)
                         }
                     } catch (e: Exception) {
                         Log.e("MessageQueue", "处理消息失败: ${e.message}")
                         queueLock.withLock {
                             currentSpeechId = null
                         }
-                        processNextInQueue(ttsManager, vibrationManager)
+                        if (ttsService != null) {
+                            processNextInQueue(vibrationManager)
+                        }
                     }
                 }
             }
@@ -277,7 +296,7 @@ class MessageQueueManager {
     // 实际处理消息项
     private fun processItem(
         item: SpeechItem,
-        ttsManager: TTSManager,
+        ttsService: TtsService,
         vibrationManager: VibrationManager
     ) {
         try {
@@ -287,12 +306,14 @@ class MessageQueueManager {
                 vibrationManager.vibrate(pattern)
             }
             // 执行语音播报
-            ttsManager.speak(item.text, item.id)
+            ttsService.speak(item.text, item.id)
         } finally {
             queueLock.withLock {
                 currentSpeechId = null
                 // 继续处理下一条
-                processNextInQueue(ttsManager, vibrationManager)
+                if (ttsService != null) {
+                    processNextInQueue(vibrationManager)
+                }
             }
         }
     }

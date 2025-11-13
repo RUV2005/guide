@@ -7,7 +7,8 @@ import com.danmo.guide.databinding.ActivityMainBinding
 import com.danmo.guide.feature.detection.ObjectDetectorHelper
 import com.danmo.guide.feature.fall.FallDetector
 import com.danmo.guide.feature.feedback.FeedbackManager
-import com.danmo.guide.feature.init.InitManager
+import com.amap.api.location.AMapLocation
+import com.danmo.guide.core.manager.InitState
 import com.danmo.guide.feature.location.LocationManager
 import com.danmo.guide.feature.weather.WeatherManager
 import com.danmo.guide.ui.components.OverlayView
@@ -30,6 +31,13 @@ class InitializationManager(
     lateinit var weatherManager: WeatherManager
     lateinit var locationManager: LocationManager
     lateinit var fallDetector: FallDetector
+    
+    // 从 InitState 同步状态
+    val voskReady: Boolean
+        get() = InitState.voskReady
+    
+    val cachedLocation: AMapLocation?
+        get() = InitState.cachedLocation
 
     /**
      * 初始化基础组件
@@ -62,12 +70,26 @@ class InitializationManager(
     }
 
     /**
+     * 设置 Vosk 就绪状态
+     */
+    fun setVoskReady(ready: Boolean) {
+        InitState.voskReady = ready
+    }
+    
+    /**
+     * 设置缓存的定位信息
+     */
+    fun setCachedLocation(location: AMapLocation?) {
+        InitState.cachedLocation = location
+    }
+
+    /**
      * 检查 Vosk 模型状态
      */
     fun checkVoskModelStatus(uiManager: UIManager) {
         lifecycleScope.launch {
             delay(3000)
-            if (!InitManager.voskReady) {
+            if (!voskReady) {
                 uiManager.showToast("语音模型加载中，请稍后重试语音功能")
             }
         }
@@ -76,8 +98,8 @@ class InitializationManager(
     /**
      * 处理缓存的定位信息
      */
-    fun handleCachedLocation(onLocationSuccess: (com.amap.api.location.AMapLocation) -> Unit) {
-        InitManager.cachedLocation?.let {
+    fun handleCachedLocation(onLocationSuccess: (AMapLocation) -> Unit) {
+        cachedLocation?.let {
             onLocationSuccess(it)
         }
     }
