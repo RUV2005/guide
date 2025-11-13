@@ -1,12 +1,16 @@
 package com.danmo.guide.core.manager
 
 import android.app.Activity
+import android.util.Size
 import android.view.View
 import android.widget.Toast
 import androidx.lifecycle.LifecycleCoroutineScope
+import com.danmo.guide.core.device.DeviceCapability
 import com.danmo.guide.databinding.ActivityMainBinding
+import com.danmo.guide.feature.detection.ObjectDetectorCache
 import com.danmo.guide.feature.feedback.DetectionProcessor
 import com.danmo.guide.feature.performancemonitor.PerformanceMonitor
+import com.danmo.guide.feature.powermode.PowerMode
 import com.danmo.guide.ui.components.OverlayView
 import kotlinx.coroutines.launch
 import org.tensorflow.lite.task.vision.detector.Detection
@@ -27,12 +31,12 @@ class UIManager(
      */
     fun updatePerformanceMetrics(metrics: PerformanceMonitor.Metrics) {
         activity.runOnUiThread {
-            binding.tvFps.text = "FPS:${metrics.fps}"
-            binding.tvCpu.text = "CPU:${metrics.cpuApp}%"
-            binding.tvMem.text = "MEM:当前:${metrics.memUsedMB}/极限:${metrics.memMaxMB}MB"
-            binding.tvTemp.text = "BAT:${metrics.batteryTemp}°C"
-            binding.tvInference.text = "AI推理延迟:${metrics.tfliteMs}ms"
-            binding.tvGpu.text = "GPU渲染时长:${metrics.gpuFrameMs}ms"
+            binding.tvFps.text = "${metrics.fps}"
+            binding.tvCpu.text = "${metrics.cpuApp}%"
+            binding.tvMem.text = "${metrics.memUsedMB}MB"
+            binding.tvTemp.text = "${String.format("%.1f", metrics.batteryTemp)}°C"
+            binding.tvInference.text = "${metrics.tfliteMs}ms"
+            binding.tvGpu.text = "${metrics.gpuFrameMs}ms"
         }
     }
 
@@ -94,6 +98,77 @@ class UIManager(
                 binding.streamView.visibility = View.VISIBLE
                 binding.timerText.visibility = View.VISIBLE
             }
+        }
+    }
+
+    /**
+     * 更新模式配置信息显示
+     */
+    fun updateModeConfig(
+        powerMode: PowerMode,
+        deviceInfo: DeviceCapability.DeviceInfo?,
+        currentResolution: Size?,
+        targetFps: Int
+    ) {
+        activity.runOnUiThread {
+            // 模式名称（中文）
+            val modeText = when (powerMode) {
+                PowerMode.LOW_POWER -> "省电"
+                PowerMode.BALANCED -> "平衡"
+                PowerMode.HIGH_ACCURACY -> "高性能"
+            }
+            binding.tvMode.text = modeText
+
+            // 设备等级（中文）
+            val tierText = deviceInfo?.let {
+                when (it.tier) {
+                    DeviceCapability.PerformanceTier.LOW -> "低端"
+                    DeviceCapability.PerformanceTier.MEDIUM -> "中端"
+                    DeviceCapability.PerformanceTier.HIGH -> "高端"
+                }
+            } ?: "未知"
+            binding.tvDeviceTier.text = tierText
+
+            // 当前使用的delegate类型
+            val delegateText = deviceInfo?.let { info ->
+                val mode = powerMode
+                val delegateType = when (mode) {
+                    PowerMode.LOW_POWER -> {
+                        if (info.hasNnapi) DeviceCapability.DelegateType.NNAPI else DeviceCapability.DelegateType.CPU
+                    }
+                    PowerMode.BALANCED -> {
+                        DeviceCapability.getRecommendedDelegate(info.tier, info.hasGpu, info.hasNnapi)
+                    }
+                    PowerMode.HIGH_ACCURACY -> {
+                        if (info.hasGpu) DeviceCapability.DelegateType.GPU
+                        else if (info.hasNnapi) DeviceCapability.DelegateType.NNAPI
+                        else DeviceCapability.DelegateType.CPU
+                    }
+                }
+                when (delegateType) {
+                    DeviceCapability.DelegateType.CPU -> "CPU"
+                    DeviceCapability.DelegateType.GPU -> "GPU"
+                    DeviceCapability.DelegateType.NNAPI -> "NNAPI"
+                }
+            } ?: "CPU"
+            binding.tvDelegate.text = delegateText
+
+            // 线程数
+            val threads = deviceInfo?.let { info ->
+                when (powerMode) {
+                    PowerMode.LOW_POWER -> 1
+                    PowerMode.BALANCED -> info.recommendedThreads.coerceAtMost(2)
+                    PowerMode.HIGH_ACCURACY -> info.recommendedThreads
+                }
+            } ?: 2
+            binding.tvThreads.text = "$threads"
+
+            // 分辨率
+            val resolutionText = currentResolution?.let { "${it.width}×${it.height}" } ?: "--"
+            binding.tvResolution.text = resolutionText
+
+            // 目标帧率
+            binding.tvTargetFps.text = "${targetFps}fps"
         }
     }
 }

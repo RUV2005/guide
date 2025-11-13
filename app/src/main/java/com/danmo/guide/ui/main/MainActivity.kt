@@ -107,6 +107,11 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // 1.5. 初始化设备性能检测（应在其他初始化之前）
+        com.danmo.guide.core.device.DeviceCapability.detect(this)
+        com.danmo.guide.feature.detection.ObjectDetectorCache.initDeviceInfo(this)
+        com.danmo.guide.core.memory.MemoryOptimizer.initDeviceInfo(this)
+
         // 2. 初始化管理模块
         permissionManager = PermissionManager(this)
         
@@ -193,6 +198,15 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                     ::triggerEmergencyCall
                 )
             }
+            // 摄像头初始化后更新模式配置信息（包含分辨率）
+            val deviceInfo = com.danmo.guide.core.device.DeviceCapability.detect(this@MainActivity)
+            val resolution = cameraManager.getCurrentResolution()
+            val targetFps = when (PowerGovernor.currentMode) {
+                PowerMode.LOW_POWER -> 2
+                PowerMode.BALANCED -> 6
+                PowerMode.HIGH_ACCURACY -> 12
+            }
+            uiManager.updateModeConfig(PowerGovernor.currentMode, deviceInfo, resolution, targetFps)
         }
 
         // 4. Vosk 检查
@@ -249,8 +263,29 @@ class MainActivity : ComponentActivity(), FallDetector.EmergencyCallback,
                         cameraManager.setTargetFps(fps)
                     }
                 }
+                
+                // 更新模式配置信息显示
+                val deviceInfo = com.danmo.guide.core.device.DeviceCapability.detect(this@MainActivity)
+                val resolution = if (::cameraManager.isInitialized) {
+                    cameraManager.getCurrentResolution()
+                } else null
+                val targetFps = when (PowerGovernor.currentMode) {
+                    PowerMode.LOW_POWER -> 2
+                    PowerMode.BALANCED -> 6
+                    PowerMode.HIGH_ACCURACY -> 12
+                }
+                uiManager.updateModeConfig(PowerGovernor.currentMode, deviceInfo, resolution, targetFps)
             }
         })
+        
+        // 初始化时也更新一次模式配置信息
+        val deviceInfo = com.danmo.guide.core.device.DeviceCapability.detect(this)
+        val initialFps = when (PowerGovernor.currentMode) {
+            PowerMode.LOW_POWER -> 2
+            PowerMode.BALANCED -> 6
+            PowerMode.HIGH_ACCURACY -> 12
+        }
+        uiManager.updateModeConfig(PowerGovernor.currentMode, deviceInfo, null, initialFps)
 
         // 结束插桩
         uiRenderTrace.stop()

@@ -54,11 +54,11 @@ object PowerGovernor {
     fun evaluate(ctx: Context): PowerMode {
         val score = (
                 cpuScore(ctx.cpuUsage)            * W_CPU +
-                        memScore(ctx.memoryPressure)      * W_MEM +
-                        batteryScore(ctx.batteryLevel)    * W_BAT +
-                        tempScore(ctx.temperature)        * W_TEMP +
-                        tfliteScore(ctx.inferenceLatency) * W_INF +
-                        networkScore(ctx.networkLatency)  * W_NET
+                memScore(ctx.memoryPressure)      * W_MEM +
+                batteryScore(ctx.batteryLevel)    * W_BAT +
+                tempScore(ctx.temperature)        * W_TEMP +
+                tfliteScore(ctx.inferenceLatency) * W_INF +
+                networkScore(ctx.networkLatency)  * W_NET
                 ).toInt()
 
         // 回滞逻辑：只在跨越阈值时才切换

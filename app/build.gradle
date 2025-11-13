@@ -49,10 +49,8 @@ android {
         buildConfigField "String", "OPENWEATHER_API_KEY", "\"${openWeatherKey}\""
         buildConfigField "String", "IPDATA_API_KEY", "\"${ipDataKey}\""
         buildConfigField "String", "OCR_API_KEY", "\"${ocrApiKey}\""
-        ndk {
-            //noinspection ChromeOsAbiSupport
-            abiFilters 'arm64-v8a'
-        }
+        // 注意：当使用 splits 时，不需要在 ndk 中设置 abiFilters
+        // splits 配置会自动处理 ABI 过滤
         lintOptions {
             htmlReport true
             xmlReport true
@@ -66,6 +64,7 @@ android {
             minifyEnabled true
             shrinkResources true          // 删除无用资源
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            debuggable false
         }
         debug {
             packagingOptions {
@@ -106,6 +105,27 @@ android {
     }
     androidResources {
         noCompress 'tflite'
+    }
+    
+    // APK Splits：为不同架构生成独立APK，减小体积
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'armeabi-v7a', 'arm64-v8a'
+            universalApk false  // 不生成通用APK
+        }
+    }
+    
+    // 为每个ABI变体设置不同的versionCode
+    applicationVariants.all { variant ->
+        variant.outputs.each { output ->
+            def abi = output.getFilter(com.android.build.OutputFile.ABI)
+            if (abi != null) {
+                def versionCodes = ['armeabi-v7a': 1, 'arm64-v8a': 2]
+                output.versionCodeOverride = variant.versionCode * 100 + versionCodes.get(abi, 0)
+            }
+        }
     }
 }
 dependencies {

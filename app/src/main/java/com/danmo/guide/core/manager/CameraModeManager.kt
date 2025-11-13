@@ -73,6 +73,8 @@ class CameraModeManager(
 
         if (cameraManager == null || cameraManager!!.isShutdown()) {
             cameraManager = CameraManager(activity, cameraExecutor!!, createAnalyzer())
+            // 初始化设备信息（如果尚未初始化）
+            cameraManager!!.initDeviceInfo()
             onInitialized(cameraManager!!)
         }
 

@@ -27,3 +27,8 @@
 # TensorFlow Lite GPU 2.13.0 旧版兼容
 -dontwarn org.tensorflow.lite.gpu.GpuDelegateFactory$Options
 -dontwarn org.tensorflow.lite.gpu.GpuDelegateFactory$Options$GpuBackend
+
+# 性能优化相关类
+-keep class com.danmo.guide.core.device.DeviceCapability { *; }
+-keep class com.danmo.guide.core.memory.MemoryOptimizer { *; }
+-keep class com.danmo.guide.feature.performancemonitor.** { *; }

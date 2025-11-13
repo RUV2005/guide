@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 设备性能配置 -->
+    <!-- 这些值会根据设备性能在运行时动态调整 -->
+    
+    <!-- 默认配置（中等性能设备） -->
+    <integer name="default_camera_fps">6</integer>
+    <integer name="default_detection_threads">2</integer>
+    <integer name="default_image_quality">80</integer>
+    
+    <!-- 低端设备配置 -->
+    <integer name="low_device_camera_fps">2</integer>
+    <integer name="low_device_detection_threads">1</integer>
+    <integer name="low_device_image_quality">60</integer>
+    <dimen name="low_device_camera_width">320</dimen>
+    <dimen name="low_device_camera_height">240</dimen>
+    
+    <!-- 中端设备配置 -->
+    <integer name="medium_device_camera_fps">6</integer>
+    <integer name="medium_device_detection_threads">2</integer>
+    <integer name="medium_device_image_quality">80</integer>
+    <dimen name="medium_device_camera_width">480</dimen>
+    <dimen name="medium_device_camera_height">360</dimen>
+    
+    <!-- 高端设备配置 -->
+    <integer name="high_device_camera_fps">12</integer>
+    <integer name="high_device_detection_threads">4</integer>
+    <integer name="high_device_image_quality">90</integer>
+    <dimen name="high_device_camera_width">640</dimen>
+    <dimen name="high_device_camera_height">480</dimen>
+</resources>
+
